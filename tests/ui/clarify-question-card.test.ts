@@ -122,5 +122,6 @@ describe("interrupted response reasons", () => {
     expect(providerFailureSource).toContain("interruptedResponseText(failureReason)");
     expect(providerFailureSource).toContain("interruptionCategoryReason(failure.category)");
     expect(providerFailureSource).not.toContain("content: INTERRUPTED_RESPONSE,");
+    expect(providerFailureSource).not.toContain("failureRecord");
   });
 });

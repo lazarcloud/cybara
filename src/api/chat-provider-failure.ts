@@ -37,15 +37,7 @@ export async function finishRetryableProviderFailure(options: {
   const timestamp = new Date().toISOString();
   const timestampMs = Date.parse(timestamp);
   const modelMetadata = resolveSessionModelMetadata(agent.id);
-  const failureRecord = failure as { error?: unknown; message?: unknown };
-  const failureReason =
-    interruptionCategoryReason(failure.category) ??
-    (typeof failureRecord.error === "string" && failureRecord.error.trim()
-      ? failureRecord.error.trim()
-      : undefined) ??
-    (typeof failureRecord.message === "string" && failureRecord.message.trim()
-      ? failureRecord.message.trim()
-      : undefined);
+  const failureReason = interruptionCategoryReason(failure.category);
   const assistantMessage: ChatMessage = {
     role: "assistant",
     content: interruptedResponseText(failureReason),
