@@ -1,6 +1,8 @@
-import { Loader2, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import { type ReactElement, useState } from "react";
 import { apiFetch } from "@/lib/auth";
+import { Button } from "@/components/ui";
+import { cn } from "@/lib/utils";
 
 export interface ClarifyQuestionOption {
   label: string;
@@ -115,11 +117,12 @@ export function ClarifyQuestionCard({
                 data-testid="clarify-question-option"
                 aria-pressed={active}
                 onClick={() => toggle(option.label)}
-                className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                className={cn(
+                  "rounded-lg border px-3 py-2 text-left text-sm transition-colors",
                   active
                     ? "border-[rgba(var(--accent-primary),0.7)] bg-[rgba(var(--accent-primary),0.14)] text-[var(--text-primary)]"
                     : "border-white/10 bg-white/[0.03] text-gray-300 hover:border-white/25 hover:text-[var(--text-primary)]"
-                }`}
+                )}
               >
                 <span className="font-medium">{option.label}</span>
                 {option.description ? (
@@ -142,20 +145,16 @@ export function ClarifyQuestionCard({
           data-testid="clarify-question-input"
           className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/25 px-3 py-1.5 text-sm text-[var(--text-primary)] outline-none placeholder:text-gray-500 focus:border-[rgba(var(--accent-primary),0.6)]"
         />
-        <button
+        <Button
           type="button"
           data-testid="clarify-question-send"
           disabled={!canSend}
+          isLoading={sending}
           onClick={submit}
-          className="flex shrink-0 items-center gap-1.5 rounded-lg bg-[rgba(var(--accent-primary),0.9)] px-3 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {sending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Send className="h-3.5 w-3.5" />
-          )}
+          <Send className="h-3.5 w-3.5" />
           Answer
-        </button>
+        </Button>
       </div>
     </div>
   );

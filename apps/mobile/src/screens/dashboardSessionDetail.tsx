@@ -1554,19 +1554,29 @@ export function SessionDetailPanel({
             ) : null}
             <MobileGoalCard api={api} sessionId={sessionId} working={sessionActive} />
             {sessionActive && detail.plan ? <MobilePlanSummaryCard plan={detail.plan} /> : null}
-            {visibleMessages.map((message, index) => (
-              <ChatMessageRow
-                key={`${message.id}-${index}`}
-                accentColor={accentColor}
-                appearance={chatAppearance}
-                message={message}
-                mediaUrl={(filePath) => api.mediaUrl(filePath)}
-                nowMs={message.id === liveAssistant?.id && sessionActive ? liveNowMs : undefined}
-                showAuthor={transcriptHasMixedAgents || Boolean(detail.room)}
-                onAddToChat={appendTextToComposer}
-                onRevert={message.role === "user" ? confirmRevertToMessage : undefined}
-              />
-            ))}
+            {(() => {
+              const lastAssistantId = visibleMessages
+                .filter((entry) => entry.role === "assistant")
+                .at(-1)?.id;
+              return visibleMessages.map((message, index) => (
+                <ChatMessageRow
+                  key={`${message.id}-${index}`}
+                  accentColor={accentColor}
+                  appearance={chatAppearance}
+                  message={message}
+                  mediaUrl={(filePath) => api.mediaUrl(filePath)}
+                  nowMs={message.id === liveAssistant?.id && sessionActive ? liveNowMs : undefined}
+                  showAuthor={transcriptHasMixedAgents || Boolean(detail.room)}
+                  showClarify={message.role === "assistant" && message.id === lastAssistantId}
+                  onAddToChat={appendTextToComposer}
+                  onClarifyAnswered={() => void loadSession(false)}
+                  onRevert={message.role === "user" ? confirmRevertToMessage : undefined}
+                  onSendClarifyAnswer={async (text) => {
+                    await api.sendChat({ message: text, sessionId: detail.id });
+                  }}
+                />
+              ));
+            })()}
             {waitingForAssistant ? (
               <View style={styles.typingRow}>
                 <ActivityIndicator color={accentColor} size="small" />

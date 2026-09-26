@@ -36,9 +36,11 @@ import {
   type StyleProp,
   Text,
   type TextStyle,
+  TextInput,
   View,
 } from "react-native";
 import { MobileLiveStatusText, MobileThinkingOrb } from "../components/MobileThinkingOrb";
+import { useTheme } from "../theme/ThemeContext";
 import type { SessionDetailSummary, SessionMessageSummary, SessionPlanSnapshot } from "../lib/api";
 import {
   buildMobileWorkTimeline,
@@ -46,9 +48,11 @@ import {
   groupMobileActivities,
   hasUnicodeTextFallback,
   mobileCodeLineCount,
+  mobileClarifyQuestion,
   mobileGoalIterationNumber,
   type MarkdownInline,
   type MobileActivityGroupKind,
+  type MobileClarifyQuestion,
   type MobileWorkActivity,
   parseInlineMarkdown,
   parseMarkdownBlocks,
@@ -630,23 +634,169 @@ export function MobilePlanSummaryCard({ plan }: { plan: SessionPlanSnapshot }) {
   );
 }
 
+export function ClarifyQuestionCard({
+  onAnswered,
+  onSend,
+  question,
+}: {
+  question: MobileClarifyQuestion;
+  onSend?: (text: string) => Promise<void>;
+  onAnswered?: () => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [custom, setCustom] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const answer = custom.trim() || [...selected].join(", ");
+  const canSend = Boolean(answer) && !sending && Boolean(onSend);
+
+  const submit = () => {
+    if (!canSend || !onSend) return;
+    setSending(true);
+    onSend(answer)
+      .then(() => onAnswered?.())
+      .catch(() => undefined)
+      .finally(() => setSending(false));
+  };
+
+  return (
+    <View
+      accessibilityLabel="Agent question"
+      style={{
+        marginTop: 8,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: colors.softCyanBorder,
+        backgroundColor: colors.softCyan,
+        padding: 12,
+      }}
+    >
+      {question.header ? (
+        <Text
+          style={{
+            marginBottom: 4,
+            fontSize: 10,
+            fontWeight: "700",
+            letterSpacing: 0.6,
+            textTransform: "uppercase",
+            color: colors.cyan,
+          }}
+        >
+          {question.header}
+        </Text>
+      ) : null}
+      <Text style={{ fontSize: 14, fontWeight: "600", color: colors.text }}>
+        {question.question}
+      </Text>
+      {question.options.length > 0 ? (
+        <View style={{ marginTop: 10, gap: 6 }}>
+          {question.options.map((option) => {
+            const active = selected.has(option.label);
+            return (
+              <Pressable
+                key={option.label}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                onPress={() =>
+                  setSelected((current) => {
+                    const next = new Set(question.multiSelect ? current : []);
+                    if (next.has(option.label)) next.delete(option.label);
+                    else next.add(option.label);
+                    return next;
+                  })
+                }
+                style={{
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: active ? colors.softCyanBorder : colors.border,
+                  backgroundColor: active ? colors.softCyan : colors.wash,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: "600", color: colors.text }}>
+                  {option.label}
+                </Text>
+                {option.description ? (
+                  <Text style={{ marginTop: 2, fontSize: 11, color: colors.textMuted }}>
+                    {option.description}
+                  </Text>
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+      <View style={{ marginTop: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <TextInput
+          value={custom}
+          onChangeText={setCustom}
+          onSubmitEditing={canSend ? submit : undefined}
+          editable={!sending}
+          placeholder="Or type your own answer…"
+          placeholderTextColor={colors.textDim}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.inset,
+            paddingHorizontal: 12,
+            paddingVertical: 7,
+            fontSize: 13,
+            color: colors.text,
+          }}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Send answer"
+          disabled={!canSend}
+          onPress={submit}
+          style={{
+            borderRadius: 10,
+            paddingHorizontal: 14,
+            paddingVertical: 8,
+            backgroundColor: colors.cyan,
+            opacity: canSend ? 1 : 0.4,
+          }}
+        >
+          {sending ? (
+            <Loader2 size={14} color={colors.background} />
+          ) : (
+            <Text style={{ fontSize: 13, fontWeight: "600", color: colors.background }}>
+              Answer
+            </Text>
+          )}
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 export function ChatMessageRow({
   accentColor,
   appearance,
   message,
   nowMs,
   onAddToChat,
+  onClarifyAnswered,
   onRevert,
+  onSendClarifyAnswer,
   mediaUrl,
   showAuthor = false,
+  showClarify = false,
 }: {
   accentColor: string;
   appearance: ChatAppearanceSettings;
   message: SessionDetailSummary["messages"][number];
   nowMs?: number;
   showAuthor?: boolean;
+  showClarify?: boolean;
   onAddToChat?: (content: string) => void;
+  onClarifyAnswered?: () => void;
   onRevert?: (message: SessionDetailSummary["messages"][number]) => void;
+  onSendClarifyAnswer?: (text: string) => Promise<void>;
   mediaUrl?: (filePath: string) => string;
 }) {
   const goalIteration = mobileGoalIterationNumber(message);
@@ -716,6 +866,13 @@ export function ChatMessageRow({
           <MessageContent
             appearance={appearance}
             content={hasContent ? content : "(empty message)"}
+          />
+        ) : null}
+        {showClarify && mobileClarifyQuestion(message) ? (
+          <ClarifyQuestionCard
+            question={mobileClarifyQuestion(message)!}
+            onSend={onSendClarifyAnswer}
+            onAnswered={onClarifyAnswered}
           />
         ) : null}
         {fileChanges ? <MobileFileChangesCard summary={fileChanges} /> : null}

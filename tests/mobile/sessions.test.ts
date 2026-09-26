@@ -197,7 +197,7 @@ describe("mobile: chat management", () => {
   });
 
   test("queued follow-ups stay above the composer instead of entering the message transcript", () => {
-    const messageLoop = screen.indexOf("{visibleMessages.map((message, index) => (");
+    const messageLoop = screen.indexOf("visibleMessages.map((message, index) => (");
     const pendingQueue = screen.indexOf("{pendingMessages.length > 0 ? (");
     const composer = screen.indexOf("<LiquidGlass", pendingQueue);
     const optimisticUserAppend = screen.indexOf("messages: [...current.messages, optimistic]");
@@ -214,7 +214,7 @@ describe("mobile: chat management", () => {
     const chat = read("screens/dashboardChat.tsx");
     const styles = readStyles();
     const planCard = screen.indexOf("<MobilePlanSummaryCard plan={detail.plan} />");
-    const messageLoop = screen.indexOf("{visibleMessages.map((message, index) => (");
+    const messageLoop = screen.indexOf("visibleMessages.map((message, index) => (");
 
     expect(api).toContain("interface SessionPlanSnapshot");
     expect(api).toContain("plan?: SessionPlanSnapshot | null");

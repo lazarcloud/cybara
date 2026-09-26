@@ -67,6 +67,15 @@ describe("clarify question card", () => {
     expect(timelineSource).toContain("isLatestEntry");
     expect(timelineSource).toContain("isLatestEntry: visibleIndex === entries.length - 1");
   });
+
+  test("answer action uses the shared themed Button component", () => {
+    expect(cardSource).toContain('import { Button } from "@/components/ui"');
+    expect(cardSource).toContain("<Button");
+    expect(cardSource).toContain("</Button>");
+    expect(cardSource).toContain("isLoading={sending}");
+    expect(cardSource).not.toContain("clarify-answer-button");
+    expect(cardSource).not.toContain("text-white");
+  });
 });
 
 describe("clarify tool handler", () => {
