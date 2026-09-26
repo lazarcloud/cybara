@@ -629,40 +629,21 @@ function buildContextFilesSection(
   return lines;
 }
 
-function resolvePromptTimezone(userTimezone?: string): string {
-  const fallback = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  if (!userTimezone) return fallback;
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: userTimezone }).format(new Date());
-    return userTimezone;
-  } catch {
-    return fallback;
+function buildTimeSection(userTimezone?: string, hasSessionStatusTool = false): string[] {
+  const lines = ["## Current Date", "Use the latest dated turn for relative dates."];
+  if (userTimezone) {
+    try {
+      const timezone = new Intl.DateTimeFormat("en-US", {
+        timeZone: userTimezone,
+      }).resolvedOptions().timeZone;
+      lines.push(`Preferred timezone: ${timezone}`);
+    } catch {
+      lines.push("Preferred timezone: UTC");
+    }
   }
-}
-
-function formatPromptLocalDate(now: Date, timeZone: string): string {
-  const weekday = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    weekday: "long",
-  }).format(now);
-  const date = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
-  return `${weekday}, ${date}`;
-}
-
-function buildTimeSection(userTimezone?: string, includeSessionStatusHint?: boolean): string[] {
-  const now = new Date();
-  const timezone = resolvePromptTimezone(userTimezone);
-  const localDate = formatPromptLocalDate(now, timezone);
-  const lines = ["## Current Date", `Current date: ${localDate} (${timezone})`];
-  if (includeSessionStatusHint) {
+  if (hasSessionStatusTool) {
     lines.push("Use `session_status` when the exact current time or refreshed usage is needed.");
   }
-  lines.push("");
   return lines;
 }
 

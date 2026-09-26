@@ -8,7 +8,7 @@ import {
 } from "../../src/core/artifacts";
 
 describe("Date and time formatting", () => {
-  test("system prompt includes a cache-stable local date", () => {
+  test("system prompt includes stable timezone guidance", () => {
     const prompt = buildSystemPrompt({
       modelDisplay: "TestModel",
       tools: ["session_status"],
@@ -17,13 +17,12 @@ describe("Date and time formatting", () => {
     });
 
     expect(prompt).toContain("## Current Date");
-    expect(prompt).toContain("(America/Los_Angeles)");
+    expect(prompt).toContain("Preferred timezone: America/Los_Angeles");
     expect(prompt).toContain("Use `session_status`");
     expect(prompt).not.toContain("UTC:");
 
-    const localLine = prompt.split("\n").find((line) => line.startsWith("Current date:"));
-    expect(localLine).toBeDefined();
-    expect(localLine).toMatch(/Current date: [A-Za-z]+, \d{4}-\d{2}-\d{2}/);
+    expect(prompt).toContain("latest dated turn");
+    expect(prompt).not.toContain("Current date:");
   });
 
   test("artifact templates include local and UTC updated timestamps", () => {

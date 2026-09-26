@@ -1,3 +1,4 @@
+import { datedTurnContent } from "../core/prompt-time-context";
 import { type AgentMessage } from "../core/agent";
 import { buildAgentHandoffInstruction, stripAgentAttributionTag } from "./chat-agent-handoff";
 import { truncateToolResultContentForContext } from "../core/agent-context-guard";
@@ -119,6 +120,10 @@ export function buildChatExecutionMessagesForAgent(
         ? { images: sessionMessage.images.map(hydrateImageDataFromPath) }
         : {}),
     };
+
+    if (sessionMessage.role === "user") {
+      message.content = datedTurnContent(message.content, sessionMessage.timestamp);
+    }
 
     if (sessionMessage.role !== "assistant" || !sessionMessage.tool_calls?.length) {
       return [message];

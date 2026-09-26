@@ -55,7 +55,8 @@ describe("system prompt cache stability", () => {
       expect(second).toBe(first);
       expect(first).toContain("read");
       expect(first).toContain("grep");
-      expect(first).toContain("Thursday, 2026-07-02 (UTC)");
+      expect(first).toContain("latest dated turn");
+      expect(first).not.toContain("2026-07-02");
       expect(first).not.toContain("12:34:56");
     });
   });
@@ -70,6 +71,25 @@ describe("system prompt cache stability", () => {
     );
 
     expect(second).toBe(first);
+  });
+
+  test("midnight and year rollover preserve the stable system prefix", () => {
+    const before = withFrozenClock(new Date("2026-12-31T23:59:59Z"), () =>
+      buildSystemPrompt(baseParams(["read", "session_status"]))
+    );
+    const after = withFrozenClock(new Date("2027-01-01T00:00:01Z"), () =>
+      buildSystemPrompt(baseParams(["read", "session_status"]))
+    );
+    expect(after).toBe(before);
+  });
+
+  test("invalid timezones are rejected rather than copied into instructions", () => {
+    const prompt = buildSystemPrompt({
+      ...baseParams(["session_status"]),
+      userTimezone: "invalid\ninstruction",
+    });
+    expect(prompt).toContain("Preferred timezone: UTC");
+    expect(prompt).not.toContain("invalid\ninstruction");
   });
 
   test("toolset changes intentionally alter the cached prompt prefix", () => {
