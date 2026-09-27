@@ -1,5 +1,8 @@
+import type { AgentInstructionUpdate } from "../agent-instruction-update";
+
 interface RoledMessage {
   role: string;
+  instructionUpdate?: AgentInstructionUpdate;
   content: unknown;
 }
 
@@ -9,7 +12,11 @@ export function coalesceSystemMessages<T extends RoledMessage>(messages: T[]): T
   const rest: T[] = [];
 
   for (const message of messages) {
-    if (message.role === "system" && typeof message.content === "string") {
+    if (
+      message.role === "system" &&
+      message.instructionUpdate?.kind !== "agent-transition" &&
+      typeof message.content === "string"
+    ) {
       if (message.content.trim()) systemParts.push(message.content);
       if (!firstSystem) firstSystem = message;
     } else {

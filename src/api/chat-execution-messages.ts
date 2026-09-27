@@ -1,22 +1,24 @@
-import { datedTurnContent } from "../core/prompt-time-context";
 import { type AgentMessage } from "../core/agent";
-import { buildAgentHandoffInstruction, stripAgentAttributionTag } from "./chat-agent-handoff";
 import { truncateToolResultContentForContext } from "../core/agent-context-guard";
+import { hydrateImageDataFromPath } from "../core/chat/attachments";
 import {
   compactChatContentForPrompt,
   TOOL_RESULT_PROMPT_MAX_CHARS,
 } from "../core/chat-token-optimization";
-import { hydrateImageDataFromPath } from "../core/chat/attachments";
-import { getActiveGoalContextLine } from "../core/session-goals";
 import { resolveActionAuthorizationInstruction } from "../core/llm/action-authorization";
+import { datedTurnContent } from "../core/prompt-time-context";
+import { getActiveGoalContextLine } from "../core/session-goals";
+import { buildAgentHandoffInstruction, stripAgentAttributionTag } from "./chat-agent-handoff";
 import { INTERRUPTED_RESPONSE } from "./chat-interruption";
 import type { ChatMessage } from "./chat-types";
+
 export { stripThinkingTags } from "./chat-formatting";
 export {
   formatProcessActivityFromToolCall,
   type ProcessActivityInfo,
   type ToolCallInfo,
 } from "./chat-process-activities";
+
 interface ReplayableToolCall {
   id: string;
   name: string;
@@ -87,6 +89,9 @@ export function buildChatExecutionMessagesForAgent(
           ),
         ]
       : sessionMessages;
+  const hasInstructionLedger = sessionMessages.some(
+    (message) => message.role === "system" && message.instructionUpdate
+  );
   const latestTransfer = sessionMessages
     .flatMap((sessionMessage) => sessionMessage.agent_transfers || [])
     .findLast((transfer) => transfer.toAgentId === options?.activeAgentId);
@@ -108,6 +113,10 @@ export function buildChatExecutionMessagesForAgent(
     const imageContext = sessionMessage.image_context?.trim();
     const message: AgentMessage = {
       role: sessionMessage.role,
+      ...(sessionMessage.role === "system" && sessionMessage.instructionUpdate
+        ? { instructionUpdate: sessionMessage.instructionUpdate }
+        : {}),
+      ...(sessionMessage.message_id ? { message_id: sessionMessage.message_id } : {}),
       content:
         !supportsImages && sessionMessage.images?.length
           ? `${content}\n\n${
@@ -155,7 +164,7 @@ export function buildChatExecutionMessagesForAgent(
       : [toolRequest, ...toolResults];
   });
 
-  if (latestTransfer) {
+  if (latestTransfer && !hasInstructionLedger) {
     const transferInstruction: AgentMessage = {
       role: "system",
       content: `The session transfer from ${latestTransfer.fromAgentName} to ${latestTransfer.toAgentName} is complete. You are ${latestTransfer.toAgentName}, the current active agent. Continue with the shared conversation and do not deny or simulate the completed transfer.`,
@@ -166,8 +175,11 @@ export function buildChatExecutionMessagesForAgent(
       executionMessages.unshift(transferInstruction);
     }
   } else {
-    if (handoffInstruction) {
-      const handoffMessage: AgentMessage = { role: "system", content: handoffInstruction };
+    if (handoffInstruction && !hasInstructionLedger) {
+      const handoffMessage: AgentMessage = {
+        role: "system",
+        content: handoffInstruction,
+      };
       if (executionMessages[0]?.role === "system") {
         executionMessages.splice(1, 0, handoffMessage);
       } else {
@@ -194,7 +206,10 @@ export function buildChatExecutionMessagesForAgent(
     ? resolveActionAuthorizationInstruction(String(lastUserMessage.content ?? ""))
     : null;
   if (autonomyInstruction) {
-    const authorizationMessage: AgentMessage = { role: "system", content: autonomyInstruction };
+    const authorizationMessage: AgentMessage = {
+      role: "system",
+      content: autonomyInstruction,
+    };
     if (executionMessages[0]?.role === "system") {
       executionMessages.splice(1, 0, authorizationMessage);
     } else {

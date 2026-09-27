@@ -42,3 +42,23 @@ describe("coalesceSystemMessages", () => {
     expect(out.slice(1).map((m) => m.content)).toEqual(["1", "2"]);
   });
 });
+
+test("preserves server-owned transitions at their chronological boundaries", () => {
+  const messages = [
+    { role: "system", content: "platform" },
+    { role: "user", content: "one" },
+    { role: "assistant", content: "A" },
+    {
+      role: "system",
+      content: "B",
+      instructionUpdate: { kind: "agent-transition" as const, agentId: "b", historyOffset: 2 },
+    },
+    { role: "user", content: "two" },
+    {
+      role: "system",
+      content: "A",
+      instructionUpdate: { kind: "agent-transition" as const, agentId: "a", historyOffset: 3 },
+    },
+  ];
+  expect(coalesceSystemMessages(messages)).toEqual(messages);
+});

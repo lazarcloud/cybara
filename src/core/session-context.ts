@@ -2,8 +2,11 @@ import { createHash } from "crypto";
 import { existsSync, statSync } from "fs";
 import { homedir } from "os";
 import { isAbsolute, resolve } from "path";
+import { presentProviderProtocolText } from "../../shared/provider-protocol";
+import { parseRoomConfig, type RoomConfig, serializeRoomConfig } from "../../shared/room-mode";
 import type { ChatMessage } from "../api/chat";
 import { agentManager } from "./agent";
+import { restoreInstructionLedger } from "./agent-instruction-update";
 import { attachmentsToImages } from "./chat/attachments";
 import {
   compactChatContentForPrompt,
@@ -14,14 +17,12 @@ import { sanitizeAssistantContent } from "./llm/text-tool-calls";
 import { createLogger } from "./logger";
 import { SESSION_SUMMARY_COMPACTION_PREDICATE } from "./metrics";
 import { providerManager, providers } from "./providers";
-import { capSessionMessageMetadata } from "./session-message-metadata";
-import { presentProviderProtocolText } from "../../shared/provider-protocol";
 import {
   clearSessionEventLedger,
   reconcileRecoveredSessionRunCompletion,
 } from "./session-event-ledger";
+import { capSessionMessageMetadata } from "./session-message-metadata";
 import { deriveSessionTitleFromMessages, normalizeSessionTitle } from "./session-title";
-import { parseRoomConfig, type RoomConfig, serializeRoomConfig } from "../../shared/room-mode";
 
 const log = createLogger("Session");
 
@@ -213,6 +214,7 @@ export async function upsertPersistedSessionMessage(
        content = excluded.content,
        metadata = excluded.metadata`
   ).run(id, sessionId, agentId, message.role, message.content, metadata ?? null, createdAt);
+  message.message_id = id;
 }
 
 export interface SessionModelMetadata {
@@ -935,7 +937,12 @@ export function shouldCompactContext(
   model?: string,
   newContent?: string,
   contextWindowTokens?: number
-): { needed: boolean; currentTokens: number; maxTokens: number; availableTokens: number } {
+): {
+  needed: boolean;
+  currentTokens: number;
+  maxTokens: number;
+  availableTokens: number;
+} {
   const contextWindow = contextWindowTokens ?? getContextWindow(model);
   const currentTokens = estimateMessagesRequestVisibleTokens(messages);
   const newContentTokens = newContent ? estimateTokens(newContent) : 0;
@@ -957,7 +964,11 @@ export async function compactContext(
   model?: string,
   providerId?: string,
   options?: { force?: boolean; contextWindowTokens?: number }
-): Promise<{ messages: ChatMessage[]; summary?: string; wasCompacted: boolean }> {
+): Promise<{
+  messages: ChatMessage[];
+  summary?: string;
+  wasCompacted: boolean;
+}> {
   const contextWindow = options?.contextWindowTokens ?? getContextWindow(model);
   const maxHistoryTokens = Math.floor((contextWindow * MAX_HISTORY_SHARE) / CONTEXT_SAFETY_MARGIN);
 
@@ -1023,7 +1034,12 @@ export async function compactContext(
     timestamp: new Date().toISOString(),
   };
 
-  const compactedMessages = [...systemMessages, summaryMessage, ...recentMessages];
+  const compactedMessages = restoreInstructionLedger(
+    recentMessages,
+    systemMessages,
+    nonSystemMessages.length - recentMessages.length
+  );
+  compactedMessages.splice(1, 0, summaryMessage);
 
   log.info("Context compaction complete", {
     messagesBefore: messages.length,
@@ -1205,6 +1221,13 @@ export async function persistSession(
       );
     }
 
+    const instructions = messages.filter((message) => message.role === "system");
+    if (instructions.length) {
+      db.prepare(
+        "UPDATE chat_sessions SET context_state = json_set(COALESCE(context_state, '{}'), '$.instructions', json(?)) WHERE id = ?"
+      ).run(JSON.stringify(instructions), sessionId);
+    }
+
     log.info("Persisted session", { sessionId, messageCount: messages.length });
     return true;
   } catch (error) {
@@ -1260,11 +1283,15 @@ export function persistSessionContextState(
     };
     return (
       db
-        .prepare("UPDATE chat_sessions SET context_state = ? WHERE id = ?")
-        .run(JSON.stringify(state), sessionId).changes > 0
+        .prepare(
+          "UPDATE chat_sessions SET context_state = json_set(COALESCE(context_state, '{}'), '$.messages', json_extract(?, '$.messages'), '$.compactionCount', json_extract(?, '$.compactionCount')) WHERE id = ?"
+        )
+        .run(JSON.stringify(state), JSON.stringify(state), sessionId).changes > 0
     );
   } catch (error) {
-    log.exception("Failed to persist compacted session context", error, { sessionId });
+    log.exception("Failed to persist compacted session context", error, {
+      sessionId,
+    });
     return false;
   }
 }
@@ -1273,11 +1300,16 @@ export function clearSessionContextState(sessionId: string): boolean {
   if (!sessionId.trim()) return false;
   try {
     return (
-      db.prepare("UPDATE chat_sessions SET context_state = NULL WHERE id = ?").run(sessionId)
-        .changes > 0
+      db
+        .prepare(
+          "UPDATE chat_sessions SET context_state = json_remove(COALESCE(context_state, '{}'), '$.messages', '$.compactionCount') WHERE id = ?"
+        )
+        .run(sessionId).changes > 0
     );
   } catch (error) {
-    log.exception("Failed to clear compacted session context", error, { sessionId });
+    log.exception("Failed to clear compacted session context", error, {
+      sessionId,
+    });
     return false;
   }
 }
@@ -1305,6 +1337,17 @@ export async function loadPersistedSession(
       : (tables.sessionMessages?.getBySession(sessionId) as PersistedSessionMessage[]) || [];
 
     const sessionMessages = reconcilePersistedRecoveryMessages(sessionId, storedSessionMessages);
+    const instructionState = db
+      .prepare(
+        "SELECT json_extract(context_state, '$.instructions') AS instructions FROM chat_sessions WHERE id = ?"
+      )
+      .get(sessionId) as { instructions: string | null } | null;
+    const instructions: ChatMessage[] = instructionState?.instructions
+      ? (JSON.parse(instructionState.instructions) as ChatMessage[]).filter(
+          (message) => message.role === "system" && typeof message.content === "string"
+        )
+      : [];
+
     const session = db
       .prepare(
         "SELECT agent_id, use_model_router, workspace_dir, title, context_state, room_config FROM chat_sessions WHERE id = ?"
@@ -1330,14 +1373,31 @@ export async function loadPersistedSession(
         : null;
     const title = normalizeSessionTitle(session?.title);
     const contextState = parsePersistedSessionContextState(session?.context_state);
+    const restoredContext = contextState
+      ? restoreInstructionLedger(
+          contextState.messages,
+          instructions,
+          Math.max(
+            0,
+            messages.filter((message) => message.role !== "system").length -
+              contextState.messages.filter((message) => message.role !== "system").length
+          )
+        )
+      : null;
+    if (restoredContext && instructions.length) {
+      restoredContext.splice(1, 0, ...contextState!.messages.filter(isContextSummaryMessage));
+    }
 
-    log.debug("Loaded persisted session", { sessionId, messageCount: messages.length });
+    log.debug("Loaded persisted session", {
+      sessionId,
+      messageCount: messages.length,
+    });
 
     return {
       agentId: agentId || "default",
       useModelRouter: session?.use_model_router === 1,
-      messages,
-      contextMessages: contextState?.messages ?? null,
+      messages: restoreInstructionLedger(messages, instructions),
+      contextMessages: restoredContext,
       compactionCount: contextState?.compactionCount ?? 0,
       workspaceDir,
       title: title || deriveSessionTitle(messages, agentId || "default"),

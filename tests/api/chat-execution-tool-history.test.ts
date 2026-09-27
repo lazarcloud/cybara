@@ -46,7 +46,7 @@ describe("chat execution tool history", () => {
           },
         ],
       },
-      { role: "user", content: "Continue." },
+      { role: "user", content: "What did you find?" },
     ];
 
     expect(buildChatExecutionMessagesForAgent(messages)).toEqual([
@@ -78,7 +78,7 @@ describe("chat execution tool history", () => {
         tool_call_id: "call_git",
       },
       { role: "assistant", content: "The package is Cybara 1.2.3." },
-      { role: "user", content: "Continue." },
+      { role: "user", content: "What did you find?" },
     ]);
   });
 
@@ -128,12 +128,12 @@ describe("chat execution tool history", () => {
           },
         ],
       },
-      { role: "user", content: "Continue." },
+      { role: "user", content: "What did you find?" },
     ];
 
     expect(buildChatExecutionMessagesForAgent(messages)).toEqual([
       { role: "user", content: "Inspect the workspace." },
-      { role: "user", content: "Continue." },
+      { role: "user", content: "What did you find?" },
     ]);
   });
 
@@ -161,7 +161,11 @@ describe("chat execution tool history", () => {
         content: "",
         tool_calls: [{ id: "call_failed", name: "exec", arguments: {} }],
       },
-      { role: "tool", content: '{"error":"Process stopped"}', tool_call_id: "call_failed" },
+      {
+        role: "tool",
+        content: '{"error":"Process stopped"}',
+        tool_call_id: "call_failed",
+      },
     ]);
   });
 
@@ -181,12 +185,15 @@ describe("chat execution tool history", () => {
           },
         ],
       },
-      { role: "user", content: "Continue." },
+      { role: "user", content: "What did you find?" },
     ];
 
     const execution = buildChatExecutionMessagesForAgent(messages);
     expect(toAnthropicHistory(execution)).toEqual([
-      { role: "user", content: [{ type: "text", text: "Read the package name." }] },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Read the package name." }],
+      },
       {
         role: "assistant",
         content: [
@@ -208,8 +215,47 @@ describe("chat execution tool history", () => {
           },
         ],
       },
-      { role: "assistant", content: [{ type: "text", text: "The package is Cybara." }] },
-      { role: "user", content: [{ type: "text", text: "Continue." }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "The package is Cybara." }],
+      },
+      { role: "user", content: [{ type: "text", text: "What did you find?" }] },
     ]);
   });
+});
+
+test("server transition metadata survives execution mapping without resurrecting an old transfer", () => {
+  const messages: ChatMessage[] = [
+    { role: "system", content: "Baseline" },
+    { role: "user", content: "Question A" },
+    { role: "assistant", content: "Answer A" },
+    {
+      role: "system",
+      content: "Agent B",
+      instructionUpdate: {
+        kind: "agent-transition",
+        agentId: "b",
+        historyOffset: 2,
+      },
+    },
+    { role: "user", content: "Question B" },
+    {
+      role: "system",
+      content: "Agent A",
+      instructionUpdate: {
+        kind: "agent-transition",
+        agentId: "a",
+        historyOffset: 3,
+      },
+    },
+  ];
+  const before = buildChatExecutionMessagesForAgent(messages.slice(0, 3));
+  const after = buildChatExecutionMessagesForAgent(messages);
+  expect(after.slice(0, before.length)).toEqual(before);
+  expect(
+    after
+      .filter((message) => message.instructionUpdate)
+      .map((message) => message.instructionUpdate?.agentId)
+  ).toEqual(["b", "a"]);
+  expect(after.at(-1)?.content).toBe("Agent A");
 });
