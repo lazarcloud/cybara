@@ -964,3 +964,47 @@ final class GatewayRuntimeModelTests: XCTestCase {
         XCTAssertEqual(cursor.sequence, 5)
     }
 }
+
+extension GatewayRuntimeModelTests {
+    func testClarifyQuestionParsesFromToolCallResult() throws {
+        let payload = """
+        {
+            "id": "msg-1",
+            "role": "assistant",
+            "content": "Which topic?",
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "name": "clarify",
+                    "status": "completed",
+                    "result": {
+                        "question": "Which runtime should I target?",
+                        "header": "Setup",
+                        "multiSelect": false,
+                        "options": [
+                            {"label": "Bun", "description": "Fast installs"},
+                            {"label": "  "},
+                            {"label": "Node"}
+                        ]
+                    }
+                }
+            ]
+        }
+        """
+        let message = try JSONDecoder().decode(GatewaySessionMessage.self, from: Data(payload.utf8))
+        let question = try XCTUnwrap(GatewayClarifyQuestion.from(message))
+        XCTAssertEqual(question.question, "Which runtime should I target?")
+        XCTAssertEqual(question.header, "Setup")
+        XCTAssertEqual(question.multiSelect, false)
+        XCTAssertEqual(question.options.map(\.label), ["Bun", "Node"])
+        XCTAssertEqual(question.options.first?.description, "Fast installs")
+    }
+
+    func testClarifyQuestionReturnsNilWithoutClarifyToolCall() throws {
+        let payload = """
+        {"id": "msg-2", "role": "assistant", "content": "done"}
+        """
+        let message = try JSONDecoder().decode(GatewaySessionMessage.self, from: Data(payload.utf8))
+        XCTAssertNil(GatewayClarifyQuestion.from(message))
+    }
+}

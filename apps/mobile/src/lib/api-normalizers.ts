@@ -799,6 +799,7 @@ export function normalizeMessageToolCalls(value: unknown): SessionToolCallSummar
       detail: command || resultSummary || describeValue(record?.args ?? record?.arguments),
       args,
       command,
+      result: record?.result,
       resultSummary,
       exitCode,
       duration,

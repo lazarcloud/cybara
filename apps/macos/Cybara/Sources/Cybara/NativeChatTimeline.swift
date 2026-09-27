@@ -163,6 +163,17 @@ extension ChatScreen {
                             mediaToken: GatewayClient.loadAPIKey()
                         )
                     }
+                    if !isUser, isLatestAssistantMessage(message),
+                       let clarifyQuestion = GatewayClarifyQuestion.from(message) {
+                        NativeClarifyQuestionCard(
+                            question: clarifyQuestion,
+                            accent: accentTint,
+                            onAnswer: { answer in
+                                draft = answer
+                                Task { await send() }
+                            }
+                        )
+                    }
                 }
                 .padding(.horizontal, isUser ? 14 : 0)
                 .padding(.vertical, isUser ? 10 : 2)
@@ -408,4 +419,103 @@ extension ChatScreen {
         }
     }
 
+}
+
+extension ChatScreen {
+    func isLatestAssistantMessage(_ message: GatewaySessionMessage) -> Bool {
+        messages.last(where: { $0.role == "assistant" })?.id == message.id
+    }
+}
+
+private struct NativeClarifyQuestionCard: View {
+    let question: GatewayClarifyQuestion
+    let accent: Color
+    let onAnswer: (String) -> Void
+
+    @State private var custom = ""
+    @State private var selected: Set<String> = []
+
+    private var answer: String {
+        let picked = selected.sorted().joined(separator: ", ")
+        return custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? picked : custom
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let header = question.header {
+                Text(header.uppercased())
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(accent)
+            }
+            Text(question.question)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .textSelection(.enabled)
+            ForEach(question.options, id: \.label) { option in
+                Button {
+                    if question.multiSelect {
+                        if selected.contains(option.label) {
+                            selected.remove(option.label)
+                        } else {
+                            selected.insert(option.label)
+                        }
+                    } else {
+                        selected = [option.label]
+                    }
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(option.label)
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                        if let description = option.description {
+                            Text(description)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(selected.contains(option.label) ? accent.opacity(0.2) : Color.primary.opacity(0.04))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(
+                                selected.contains(option.label) ? accent.opacity(0.6) : Color.primary.opacity(0.08),
+                                lineWidth: 1
+                            )
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+            HStack(spacing: 8) {
+                TextField("Or type your own answer…", text: $custom)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                Button {
+                    let outgoing = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !outgoing.isEmpty else { return }
+                    onAnswer(outgoing)
+                    custom = ""
+                    selected = []
+                } label: {
+                    Label("Answer", systemImage: "paperplane.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(accent)
+                .disabled(answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(accent.opacity(0.07))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(accent.opacity(0.35), lineWidth: 1)
+        )
+        .padding(.top, 4)
+    }
 }

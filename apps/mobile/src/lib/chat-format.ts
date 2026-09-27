@@ -1029,3 +1029,52 @@ export function groupMobileActivities(activities: MobileWorkActivity[]): MobileA
   flush();
   return entries;
 }
+
+export interface MobileClarifyQuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface MobileClarifyQuestion {
+  question: string;
+  header?: string;
+  multiSelect: boolean;
+  options: MobileClarifyQuestionOption[];
+}
+
+export function mobileClarifyQuestion(
+  message: Pick<SessionMessageSummary, "toolCalls">
+): MobileClarifyQuestion | null {
+  const call = (message.toolCalls || []).find(
+    (toolCall) =>
+      toolCall.name === "clarify" &&
+      toolCall.status !== "failed" &&
+      toolCall.result &&
+      typeof toolCall.result === "object"
+  );
+  if (!call) return null;
+  const result = call.result as Record<string, unknown>;
+  const question = typeof result.question === "string" ? result.question.trim() : "";
+  if (!question) return null;
+  const rawOptions = Array.isArray(result.options) ? result.options : [];
+  const options: MobileClarifyQuestionOption[] = [];
+  for (const raw of rawOptions.slice(0, 4)) {
+    if (!raw || typeof raw !== "object") continue;
+    const record = raw as Record<string, unknown>;
+    const label = typeof record.label === "string" ? record.label.trim() : "";
+    if (!label) continue;
+    options.push({
+      label,
+      description:
+        typeof record.description === "string" && record.description.trim()
+          ? record.description.trim()
+          : undefined,
+    });
+  }
+  return {
+    question,
+    header: typeof result.header === "string" ? result.header.trim() : undefined,
+    multiSelect: result.multiSelect === true,
+    options,
+  };
+}

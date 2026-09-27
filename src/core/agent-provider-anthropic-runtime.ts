@@ -56,6 +56,11 @@ import {
   shouldSendAnthropicContext1mBeta,
 } from "./llm/anthropic-request-options";
 import {
+  anthropicTimingOptions,
+  postAnthropicStreamableMessages,
+  readAnthropicMessageBody,
+} from "./llm/anthropic-streaming";
+import {
   anthropicEndpointPath,
   anthropicRequestBase,
   anthropicRequestHeaders,
@@ -63,14 +68,9 @@ import {
 import { toAnthropicImageBlock } from "./llm/image-blocks";
 import { normalizeAnthropicModelToolUses } from "./llm/model-dialect";
 import { canRunToolsInParallel } from "./llm/parallel-tools";
-import { toAnthropicHistory } from "./llm/provider-history";
+import { toAnthropicInstructionHistory } from "./llm/provider-history";
 import { supportsForcedToolChoice } from "./llm/provider-model-transport";
 import { withLlmRequestTimeout } from "./llm/request-timeout";
-import {
-  anthropicTimingOptions,
-  postAnthropicStreamableMessages,
-  readAnthropicMessageBody,
-} from "./llm/anthropic-streaming";
 import {
   sanitizeAssistantContent,
   toAnthropicReplayContentWithNormalizedToolUses,
@@ -113,8 +113,8 @@ export abstract class AgentProviderAnthropicRuntime extends AgentProviderCloudRu
     thinking?: string;
     tool_calls?: AgentToolCallResult[];
   }> {
-    const systemMessage = messages.find((m) => m.role === "system");
-    const chatMessages = toAnthropicHistory(messages);
+    const { system: systemBlocks, messages: chatMessages } =
+      toAnthropicInstructionHistory(messages);
     const contextWindowTokens =
       toolContext?.maxContextTokens ??
       resolveModelContextWindowTokens(providerConfig, providerId, modelId);
@@ -129,8 +129,8 @@ export abstract class AgentProviderAnthropicRuntime extends AgentProviderCloudRu
       vertex
     );
 
-    if (systemMessage) {
-      requestBody.system = systemMessage.content;
+    if (systemBlocks.length > 0) {
+      requestBody.system = systemBlocks;
     }
 
     if (tools && Array.isArray(tools) && tools.length > 0) {
@@ -236,7 +236,10 @@ export abstract class AgentProviderAnthropicRuntime extends AgentProviderCloudRu
 
       lastInitialError = await response.text();
 
-      const classifiedError = classifyApiError({ status: response.status, body: lastInitialError });
+      const classifiedError = classifyApiError({
+        status: response.status,
+        body: lastInitialError,
+      });
       if (activeCredential && classifiedError.category === "rate_limit") {
         recordRateLimit(activeCredential.label, response.headers);
       }
@@ -666,8 +669,8 @@ export abstract class AgentProviderAnthropicRuntime extends AgentProviderCloudRu
         modelParams
       );
 
-      if (systemMessage) {
-        loopRequestBody.system = systemMessage.content;
+      if (systemBlocks.length > 0) {
+        loopRequestBody.system = systemBlocks;
       }
 
       const loopTools = toolsAfterWebResearchBudget(tools, webResearchExhausted);
@@ -902,8 +905,8 @@ export abstract class AgentProviderAnthropicRuntime extends AgentProviderCloudRu
           maxOutputTokens,
           modelParams
         );
-        if (systemMessage) {
-          closingBody.system = systemMessage.content;
+        if (systemBlocks.length > 0) {
+          closingBody.system = systemBlocks;
         }
         const closingStartedAt = performance.now();
         let closingResponse: Response | null = null;

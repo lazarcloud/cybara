@@ -792,6 +792,7 @@ export interface SessionToolCallSummary {
   detail?: string;
   args?: Record<string, unknown>;
   command?: string;
+  result?: unknown;
   resultSummary?: string;
   exitCode?: string;
   duration?: string;

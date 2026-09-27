@@ -1,4 +1,5 @@
 import type { AgentMessage } from "../agent";
+import { isAgentInstructionUpdate, runtimeInstructionText } from "../agent-instruction-update";
 import type { GoogleContent, GooglePart } from "../agent-internals";
 import type { AnthropicContentBlock, AnthropicMessage } from "../prompt-cache";
 import {
@@ -84,6 +85,13 @@ export function toAnthropicHistory(messages: AgentMessage[]): AnthropicMessage[]
   const toolNames = toolNamesById(messages);
 
   for (const message of messages) {
+    if (isAgentInstructionUpdate(message)) {
+      history.push({
+        role: "user",
+        content: [{ type: "text", text: runtimeInstructionText(message) }],
+      });
+      continue;
+    }
     if (message.role === "system") continue;
 
     if (message.role === "assistant") {
@@ -134,6 +142,13 @@ export function toGoogleHistory(messages: AgentMessage[]): GoogleContent[] {
   const toolNames = toolNamesById(messages);
 
   for (const message of messages) {
+    if (isAgentInstructionUpdate(message)) {
+      history.push({
+        role: "user",
+        parts: [{ text: runtimeInstructionText(message) }],
+      });
+      continue;
+    }
     if (message.role === "system") continue;
 
     if (message.role === "assistant") {
@@ -187,6 +202,13 @@ export function toBedrockHistory(messages: AgentMessage[]): BedrockHistoryMessag
   const toolNames = toolNamesById(messages);
 
   for (const message of messages) {
+    if (isAgentInstructionUpdate(message)) {
+      history.push({
+        role: "user",
+        content: [{ text: runtimeInstructionText(message) }],
+      });
+      continue;
+    }
     if (message.role === "system") continue;
 
     if (message.role === "assistant") {
@@ -271,9 +293,17 @@ export function toOpenAIChatHistory(
   providerConfig?: string,
   modelId: string = ""
 ): Array<Record<string, unknown>> {
-  const systemMessages = messages.filter((message) => message.role === "system");
-  const chatMessages = messages.filter((message) => message.role !== "system");
-  return [...systemMessages, ...chatMessages].map((message) =>
-    toOpenAIChatMessage(message, providerConfig, modelId)
-  );
+  return messages.map((message) => toOpenAIChatMessage(message, providerConfig, modelId));
+}
+
+export function toAnthropicInstructionHistory(messages: AgentMessage[]): {
+  system: Array<{ type: "text"; text: string }>;
+  messages: AnthropicMessage[];
+} {
+  return {
+    system: messages
+      .filter((message) => message.role === "system" && !isAgentInstructionUpdate(message))
+      .map((message) => ({ type: "text", text: message.content })),
+    messages: toAnthropicHistory(messages),
+  };
 }

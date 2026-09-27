@@ -4,6 +4,7 @@ import {
   resolveContextGuardBudgets,
   truncateToolResultContentForContext,
 } from "./agent-context-guard";
+import { isAgentInstructionUpdate } from "./agent-instruction-update";
 import {
   type AgenticLoopState,
   type AgentToolCallResult,
@@ -86,10 +87,20 @@ export abstract class AgentProviderCodexRuntime extends AgentProviderOpenAICompa
     instructions?: string;
     input: Array<Record<string, unknown>>;
   } {
-    const systemMessage = messages.find((message) => message.role === "system");
+    const instructions = messages
+      .filter((message) => message.role === "system" && !isAgentInstructionUpdate(message))
+      .map((message) => message.content)
+      .join("\n\n");
     const input: Array<Record<string, unknown>> = [];
 
     for (const message of messages) {
+      if (isAgentInstructionUpdate(message)) {
+        input.push({
+          role: "developer",
+          content: [{ type: "input_text", text: message.content }],
+        });
+        continue;
+      }
       if (message.role === "system") continue;
 
       if (message.role === "user") {
@@ -135,7 +146,7 @@ export abstract class AgentProviderCodexRuntime extends AgentProviderOpenAICompa
     }
 
     return {
-      instructions: systemMessage?.content,
+      instructions: instructions || undefined,
       input,
     };
   }
@@ -456,7 +467,10 @@ export abstract class AgentProviderCodexRuntime extends AgentProviderOpenAICompa
             );
             continue;
           }
-          const classifiedError = classifyApiError({ status: response.status, body: errorText });
+          const classifiedError = classifyApiError({
+            status: response.status,
+            body: errorText,
+          });
           const retryDelayMs = this.providerRetryDelayMs(
             response.status,
             response.headers,
@@ -890,7 +904,10 @@ export abstract class AgentProviderCodexRuntime extends AgentProviderOpenAICompa
         inputItems.push({
           role: "user",
           content: [
-            { type: "input_text", text: "Inspect the image returned by the file or image tool." },
+            {
+              type: "input_text",
+              text: "Inspect the image returned by the file or image tool.",
+            },
             ...toolImages.map(toOpenAIResponsesImageBlock),
           ],
         });

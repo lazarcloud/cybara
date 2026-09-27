@@ -13,6 +13,7 @@ export {
   type ToolCallInfo,
 } from "./chat-process-activities";
 export interface ChatMessage {
+  instructionUpdate?: import("../core/agent-instruction-update").AgentInstructionUpdate;
   role: "user" | "assistant" | "system";
   content: string;
   message_id?: string;

@@ -158,6 +158,8 @@ export const AGENT_TYPES = {
 };
 
 export interface AgentMessage {
+  instructionUpdate?: import("./agent-instruction-update").AgentInstructionUpdate;
+  message_id?: string;
   role: "user" | "assistant" | "system" | "tool";
   content: string;
   images?: AgentImage[];
@@ -869,7 +871,7 @@ class AgentManager extends AgentProviderRuntime {
   async message(
     id: string,
     content: string,
-    options?: { workspaceDir?: string }
+    options?: { workspaceDir?: string; sessionId?: string; useMemory?: boolean }
   ): Promise<{ response: string; thinking?: string }> {
     let state = this.runningAgents.get(id);
     if (!state) {
@@ -1025,7 +1027,7 @@ class AgentManager extends AgentProviderRuntime {
 
   private async executeWithState(
     state: RunningAgentState,
-    options?: { workspaceDir?: string }
+    options?: { workspaceDir?: string; sessionId?: string; useMemory?: boolean }
   ): Promise<{ response: string; thinking?: string }> {
     const { agent, messages } = state;
 
@@ -1035,7 +1037,10 @@ class AgentManager extends AgentProviderRuntime {
     }
     const provider = target.provider;
 
-    const fullMessages = await this.injectMemoryRecall(messages, agent);
+    const fullMessages =
+      options?.useMemory === false
+        ? messages
+        : await this.injectMemoryRecall(messages, agent, options?.sessionId);
 
     const supportsTools = true;
 
@@ -1231,7 +1236,7 @@ class AgentManager extends AgentProviderRuntime {
     const workspaceAwareMessages =
       options?.useMemory === false
         ? workspaceMessages
-        : await this.injectMemoryRecall(workspaceMessages, agent);
+        : await this.injectMemoryRecall(workspaceMessages, agent, options?.sessionId);
 
     const supportsTools = true;
 
@@ -1397,24 +1402,12 @@ class AgentManager extends AgentProviderRuntime {
 
   private async injectMemoryRecall(
     messages: AgentMessage[],
-    agent: Agent
+    agent: Agent,
+    sessionId?: string
   ): Promise<AgentMessage[]> {
     if (!shouldInjectAutomaticMemoryRecall(agent)) return messages;
-    const lastUser = [...messages].reverse().find((m) => m.role === "user");
-    const query = typeof lastUser?.content === "string" ? lastUser.content.trim() : "";
-    if (!query) return messages;
-    let recall = "";
-    try {
-      recall = await recallRelevantMemory(query);
-    } catch {
-      return messages;
-    }
-    if (!recall) return messages;
-    const recallMessage = { role: "system" as const, content: recall };
-    if (messages[0]?.role === "system") {
-      return [messages[0], recallMessage, ...messages.slice(1)];
-    }
-    return [recallMessage, ...messages];
+    const { injectPersistedMemoryRecall } = await import("./memory/turn-recall-runtime");
+    return injectPersistedMemoryRecall(messages, sessionId, recallRelevantMemory);
   }
 
   private injectWorkspaceSystemMessage(

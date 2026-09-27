@@ -1486,3 +1486,53 @@ struct GatewayOAuthStartResponse: Decodable, Hashable {
         callbackPort = try container.decodeFlexibleInt(forKeys: [.callback_port, .callbackPort])
     }
 }
+
+struct GatewayClarifyQuestionOption: Hashable, Sendable {
+    let label: String
+    let description: String?
+}
+
+struct GatewayClarifyQuestion: Hashable, Sendable {
+    let question: String
+    let header: String?
+    let multiSelect: Bool
+    let options: [GatewayClarifyQuestionOption]
+}
+
+extension GatewayClarifyQuestion {
+    static func from(_ message: GatewaySessionMessage) -> GatewayClarifyQuestion? {
+        guard
+            let call = message.tool_calls?.first(where: { toolCall in
+                guard toolCall.name == "clarify", toolCall.status != "failed" else { return false }
+                if case .object = toolCall.result ?? .null { return true }
+                return false
+            })
+        else { return nil }
+        guard case .object(let result) = call.result else { return nil }
+        guard case .string(let question) = result["question"] ?? .null, !question.isEmpty else {
+            return nil
+        }
+        var header: String?
+        if case .string(let value) = result["header"] ?? .null { header = value }
+        var multiSelect = false
+        if case .bool(let value) = result["multiSelect"] ?? .null { multiSelect = value }
+        var options: [GatewayClarifyQuestionOption] = []
+        if case .array(let rawOptions) = result["options"] ?? .null {
+            for raw in rawOptions.prefix(4) {
+                guard case .object(let record) = raw else { continue }
+                guard case .string(let rawLabel) = record["label"] ?? .null else { continue }
+                let label = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !label.isEmpty else { continue }
+                var description: String?
+                if case .string(let value) = record["description"] ?? .null { description = value }
+                options.append(GatewayClarifyQuestionOption(label: label, description: description))
+            }
+        }
+        return GatewayClarifyQuestion(
+            question: question,
+            header: header,
+            multiSelect: multiSelect,
+            options: options
+        )
+    }
+}

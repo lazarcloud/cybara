@@ -25,7 +25,7 @@ import { getRunBySessionKey } from "../core/subagent-registry";
 import { getActiveSessionRunId } from "../core/session-event-ledger";
 import { clearTodoState } from "../core/tools/handlers/todo";
 import { getRateLimitStatus } from "../core/tools/runtime-guards";
-import { applyActiveAgentToSession } from "./chat-agent-prompt";
+import { applyActiveAgentToSession, sessionPromptUsesTools } from "./chat-agent-prompt";
 import { resolveTurnContextWindow } from "./chat-turn-context";
 import { recoverInterruptedSessionMessages } from "./chat-run-recovery";
 import {
@@ -91,7 +91,10 @@ async function loadPersistedSessionMemoized(
     contentBytes: number;
     maxCreated: string;
   };
-  const fingerprint = `${row.count}:${row.metaBytes}:${row.contentBytes}:${row.maxCreated}`;
+  const instructionState = db
+    .prepare("SELECT context_state FROM chat_sessions WHERE id = ?")
+    .get(sessionId) as { context_state: string | null } | null;
+  const fingerprint = `${row.count}:${row.metaBytes}:${row.contentBytes}:${row.maxCreated}:${instructionState?.context_state ?? ""}`;
   const memoKey = `${sessionId}:${options.deferHistoricalMetadata ? "deferred" : "full"}`;
   const existing = persistedSessionLoadMemo.get(memoKey);
   if (existing?.fingerprint === fingerprint) return existing;
@@ -275,6 +278,17 @@ export async function updateSessionAgent(
   agentId?: string,
   useModelRouter = false
 ): Promise<ChatSessionAgentUpdate> {
+  activeChatTurnAbortControllers.get(sessionId)?.abort();
+  return chatTurnMutex.run(sessionId, () =>
+    updateSessionAgentAtTurnBoundary(sessionId, agentId, useModelRouter)
+  );
+}
+
+async function updateSessionAgentAtTurnBoundary(
+  sessionId: string,
+  agentId?: string,
+  useModelRouter = false
+): Promise<ChatSessionAgentUpdate> {
   const normalizedAgentId =
     typeof agentId === "string" && agentId.trim().length > 0 ? agentId.trim() : "";
 
@@ -294,7 +308,10 @@ export async function updateSessionAgent(
   }
 
   if (!useModelRouter) {
-    await applyActiveAgentToSession(session, agent);
+    await applyActiveAgentToSession(session, agent, undefined, {
+      useTools: sessionPromptUsesTools(session.messages),
+      pendingTransition: true,
+    });
   }
   session.useModelRouter = useModelRouter;
   const persistedRouting = await setPersistedSessionRouting(
@@ -511,7 +528,10 @@ export async function listSessionPage(options?: { limit?: number; offset?: numbe
   };
 }
 
-export function markSessionRead(sessionId: string): { found: boolean; unread: false } {
+export function markSessionRead(sessionId: string): {
+  found: boolean;
+  unread: false;
+} {
   const key = sessionId.trim();
   if (!key) return { found: false, unread: false };
   const found = tables.chatSessions.markRead(key);

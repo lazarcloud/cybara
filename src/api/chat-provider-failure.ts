@@ -9,7 +9,7 @@ import {
 } from "../core/session-event-ledger";
 import { extractLatestSessionPlan } from "../core/session-plan";
 import { broadcastStatus } from "../core/status";
-import { INTERRUPTED_RESPONSE } from "./chat-interruption";
+import { interruptionCategoryReason, interruptedResponseText } from "./chat-interruption";
 import { appendAssistantMessage } from "./chat-pending-state";
 import { persistChatSessionSnapshot, type InMemoryChatSession } from "./chat-runtime-state";
 import type { ChatMessage, ChatResponse } from "./chat-types";
@@ -37,9 +37,10 @@ export async function finishRetryableProviderFailure(options: {
   const timestamp = new Date().toISOString();
   const timestampMs = Date.parse(timestamp);
   const modelMetadata = resolveSessionModelMetadata(agent.id);
+  const failureReason = interruptionCategoryReason(failure.category);
   const assistantMessage: ChatMessage = {
     role: "assistant",
-    content: INTERRUPTED_RESPONSE,
+    content: interruptedResponseText(failureReason),
     timestamp,
     ...(modelMetadata ?? {}),
     run_id: getActiveSessionRunId(session.id),

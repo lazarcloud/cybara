@@ -302,7 +302,9 @@ async function finishInterruptedChatTurn(
   clearActiveChatTurnAbortController(session.id, controller);
   const pendingSteeringId = interruptedChatTurnSteeringIds.get(controller);
   const materializedMessage = pendingSteeringId
-    ? materializeInterruptedAssistantBeforeSteering(session, undefined, { pendingSteeringId })
+    ? materializeInterruptedAssistantBeforeSteering(session, undefined, {
+        pendingSteeringId,
+      })
     : await persistInterruptedAssistantTurn(session, "interrupted");
   if (pendingSteeringId && materializedMessage) {
     const stableKey = materializedMessage._pendingSteeringId
@@ -562,7 +564,9 @@ async function persistInterruptedAssistantTurn(
     .find((message) => message.role === "user");
   await upsertPersistedSessionMessage(session.id, session.agentId, interruptedMessage, {
     stableKey: `${kind}:${latestUser?.timestamp || interruptedMessage.timestamp || session.id}`,
-    metadata: { source: kind === "stopped" ? "chat_stopped" : "chat_interrupted" },
+    metadata: {
+      source: kind === "stopped" ? "chat_stopped" : "chat_interrupted",
+    },
   });
   await persistChatSessionSnapshot(session, interruptedMessage);
   persistActiveSessionContext(session);
@@ -979,7 +983,10 @@ async function handleChatTurn(
       : undefined;
   const requestedWorkspaceDir =
     workspaceDir !== undefined ? normalizeSessionWorkspaceDir(workspaceDir) : undefined;
-  const agentPromptOptions = { useTools: toolsEnabled, runtimeChannel: channel };
+  const agentPromptOptions = {
+    useTools: toolsEnabled,
+    runtimeChannel: channel,
+  };
 
   let session = getResidentChatSession(effectiveSessionId);
   if (!session) {
@@ -1401,6 +1408,14 @@ async function handleChatTurn(
           break;
         }
 
+        const targetProvider = agentManager.resolveProvider(targetAgent.id);
+        if (!targetProvider) {
+          result = {
+            ...result,
+            content: `${targetAgent.name} has no available provider. Choose another agent to continue.`,
+          };
+          break;
+        }
         agentTransfers.push(transfer);
         broadcastStatus({
           status: "thinking",
@@ -1415,14 +1430,7 @@ async function handleChatTurn(
         await setPersistedSessionAgent(session.id, targetAgent.id);
         persistActiveSessionContext(session);
         agent = targetAgent;
-        provider = agentManager.resolveProvider(targetAgent.id);
-        if (!provider) {
-          result = {
-            ...result,
-            content: `${targetAgent.name} has no available provider. Choose another agent to continue.`,
-          };
-          break;
-        }
+        provider = targetProvider;
         activeModelOverride = undefined;
         activeSupportsImages = agentSupportsImages(targetAgent);
         allowedToolNames = toolsEnabled
