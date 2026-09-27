@@ -1,56 +1,5 @@
-# Current Tauri 2.11.5 still pulls these Linux WebKit/GTK transitive crates.
-# Re-check and remove these ignores when Tauri/wry move off gtk-rs GTK3,
-# and urlpattern's unic 0.9 stack.
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2024-0411"
-ignoreUntil = 2026-12-31
-reason = "Upstream Tauri Linux runtime warning via tao/gdkwayland-sys; no patched Tauri release is available."
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2024-0412"
-ignoreUntil = 2026-12-31
-reason = "Upstream Tauri Linux runtime warning via webkit2gtk/gtk/gdk; no patched Tauri release is available."
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2024-0413"
-ignoreUntil = 2026-12-31
-reason = "Upstream Tauri Linux runtime warning via gtk/atk; no patched Tauri release is available."
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2024-0414"
-ignoreUntil = 2026-12-31
-reason = "Upstream Tauri Linux runtime warning via tao/gdkx11-sys; no patched Tauri release is available."
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2024-0415"
-ignoreUntil = 2026-12-31
-reason = "Upstream Tauri Linux runtime warning via gtk; no patched Tauri release is available."
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2024-0416"
-ignoreUntil = 2026-12-31
-reason = "Upstream Tauri Linux runtime warning via gtk/atk-sys; no patched Tauri release is available."
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2024-0417"
-ignoreUntil = 2026-12-31
-reason = "Upstream Tauri Linux runtime warning via wry/gdkx11; no patched Tauri release is available."
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2024-0418"
-ignoreUntil = 2026-12-31
-reason = "Upstream Tauri Linux runtime warning via webkit2gtk/gtk/gdk-sys; no patched Tauri release is available."
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2024-0419"
-ignoreUntil = 2026-12-31
-reason = "Upstream Tauri Linux runtime warning via gtk3-macros; no patched Tauri release is available."
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2024-0420"
-ignoreUntil = 2026-12-31
-reason = "Upstream Tauri Linux runtime warning via webkit2gtk/gtk-sys; no patched Tauri release is available."
+# Upstream Tauri/wry transitive Rust advisories with no patched release available.
+# Re-check and remove these ignores whenever a patched Tauri release lands.
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2024-0429"
