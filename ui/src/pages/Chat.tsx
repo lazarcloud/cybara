@@ -1547,7 +1547,10 @@ export function Chat() {
       ? !pendingCapture.sessionId || pendingCapture.sessionId === sessionId
       : !pendingCapture.sessionId);
   const showWorkingTimeline = currentSessionIsWorking;
-  const transcriptHasMixedAgents = hasMixedAssistantAuthors(typedMessages);
+  const transcriptHasMixedAgents = useMemo(
+    () => hasMixedAssistantAuthors(typedMessages),
+    [typedMessages]
+  );
   const composerHasDraft =
     input.trim().length > 0 || pendingImages.length > 0 || pendingFiles.length > 0;
   const sendQueuesFollowUp =

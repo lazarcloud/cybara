@@ -32,6 +32,9 @@ export function browserExecutableCandidates(
       windowsJoin(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
       windowsJoin(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
       localAppData && windowsJoin(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
+      windowsJoin(programFiles, "Google", "Chrome Beta", "Application", "chrome.exe"),
+      localAppData &&
+        windowsJoin(localAppData, "Google", "Chrome SxS", "Application", "chrome.exe"),
       windowsJoin(programFiles, "Chromium", "Application", "chrome.exe"),
       windowsJoin(programFiles, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
       localAppData &&
@@ -69,12 +72,120 @@ export function browserChannelNames(_platform: RuntimePlatform): Array<"chrome" 
   return ["chrome", "msedge"];
 }
 
-export function browserExecutableLabel(executablePath: string): string {
+function browserExecutableLabel(executablePath: string): string {
   const normalized = executablePath.toLowerCase();
   if (normalized.includes("msedge")) return "Microsoft Edge executable";
   if (normalized.includes("chrome")) return "Google Chrome executable";
   if (normalized.includes("brave")) return "Brave executable";
   return "Chromium executable";
+}
+
+type WindowsBrowserFamily = "chrome" | "chromium" | "brave" | "edge";
+
+function windowsBrowserFamily(executablePath: string): WindowsBrowserFamily {
+  const normalized = executablePath.toLowerCase().replaceAll("/", "\\");
+  if (normalized.endsWith("\\msedge.exe")) return "edge";
+  if (normalized.endsWith("\\brave.exe")) return "brave";
+  if (normalized.includes("\\google\\chrome") && normalized.endsWith("\\chrome.exe")) {
+    return "chrome";
+  }
+  return "chromium";
+}
+
+const WINDOWS_BROWSER_FAMILY_RANK: Record<WindowsBrowserFamily, number> = {
+  chrome: 0,
+  chromium: 1,
+  brave: 2,
+  edge: 3,
+};
+
+export function isGoogleChromeExecutable(executablePath: string): boolean {
+  return windowsBrowserFamily(executablePath) === "chrome";
+}
+
+export interface WindowsLaunchTarget {
+  label: string;
+  executablePath: string;
+}
+
+export function buildWindowsLaunchOrder(options: {
+  explicitExecutable?: string;
+  bundledExecutable: string | null;
+  chromeForTestingExecutable: string | null;
+  systemExecutables: string[];
+}): WindowsLaunchTarget[] {
+  const targets: WindowsLaunchTarget[] = [];
+  const seen = new Set<string>();
+  const add = (label: string, executablePath: string | null | undefined): void => {
+    if (!executablePath) return;
+    const key = executablePath.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    targets.push({ label, executablePath });
+  };
+  const explicit = options.explicitExecutable?.trim();
+  if (explicit) {
+    add(
+      "configured browser",
+      options.systemExecutables.find(
+        (candidate) => candidate.toLowerCase() === explicit.toLowerCase()
+      )
+    );
+  }
+  const ranked = [...options.systemExecutables].sort(
+    (left, right) =>
+      WINDOWS_BROWSER_FAMILY_RANK[windowsBrowserFamily(left)] -
+      WINDOWS_BROWSER_FAMILY_RANK[windowsBrowserFamily(right)]
+  );
+  for (const executablePath of ranked) {
+    if (windowsBrowserFamily(executablePath) === "chrome") add("Google Chrome", executablePath);
+  }
+  add("Chrome for Testing", options.chromeForTestingExecutable);
+  add("Packaged Chromium", options.bundledExecutable);
+  for (const executablePath of ranked) {
+    const family = windowsBrowserFamily(executablePath);
+    if (family === "chromium") add("Chromium", executablePath);
+    else if (family === "brave") add("Brave", executablePath);
+  }
+  for (const executablePath of ranked) {
+    if (windowsBrowserFamily(executablePath) === "edge") add("Microsoft Edge", executablePath);
+  }
+  return targets;
+}
+
+const WINDOWS_CHROME_APP_PATH_KEYS = [
+  "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe",
+  "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe",
+  "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe",
+];
+
+export function parseRegistryDefaultValue(output: string): string | null {
+  for (const line of output.split(/\r?\n/)) {
+    const match = /^\s*\(Default\)\s+REG_(?:EXPAND_)?SZ\s+(.+?)\s*$/i.exec(line);
+    if (!match?.[1]) continue;
+    const value = match[1].replace(/^"(.*)"$/, "$1").trim();
+    if (value) return value;
+  }
+  return null;
+}
+
+function windowsRegistryChromeExecutables(env: NodeJS.ProcessEnv): string[] {
+  const found: string[] = [];
+  for (const key of WINDOWS_CHROME_APP_PATH_KEYS) {
+    try {
+      const result = Bun.spawnSync(["reg", "query", key, "/ve"], {
+        stdout: "pipe",
+        stderr: "ignore",
+        env,
+      });
+      if (result.exitCode !== 0) continue;
+      const value = parseRegistryDefaultValue(result.stdout.toString());
+      if (value) found.push(value.replace(/%([^%]+)%/g, (_, name: string) => env[name] ?? ""));
+    } catch {
+      continue;
+    }
+  }
+  return found;
 }
 
 function browserChannelForExecutable(executablePath: string): "chrome" | "msedge" | undefined {
@@ -161,11 +272,23 @@ export function findSystemBrowserExecutables(
   for (const candidate of browserExecutableCandidates(platform, env, home)) {
     if (existsSync(candidate)) found.push(candidate);
   }
+  if (platform === "win32") {
+    for (const executable of windowsRegistryChromeExecutables(env)) {
+      if (existsSync(executable)) found.push(executable);
+    }
+  }
   for (const command of browserCommandNames(platform)) {
     const executable = Bun.which(command);
     if (executable && existsSync(executable)) found.push(executable);
   }
-  return [...new Set(found)];
+  if (platform !== "win32") return [...new Set(found)];
+  const seen = new Set<string>();
+  return found.filter((executable) => {
+    const key = executable.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export function findPlaywrightBrowserExecutable(
@@ -220,7 +343,8 @@ export function browserLaunchArgs(
       "--enable-gpu",
       "--no-first-run",
       "--no-default-browser-check",
-      "--window-position=-32000,-32000"
+      "--window-position=-32000,-32000",
+      "--disable-features=CalculateNativeWinOcclusion"
     );
   }
   return args;

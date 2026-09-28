@@ -1,5 +1,14 @@
 import { User } from "lucide-react";
-import { type ReactElement, useEffect, useRef, useState } from "react";
+import {
+  memo,
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { presentProviderProtocolText } from "../../../../shared/provider-protocol";
 import {
   buildActivitiesFromToolCalls,
@@ -32,6 +41,16 @@ import { observeDeferredMessage } from "./deferredMessageVisibility";
 import { loadDeferredMessageMetadata } from "./deferredMessageMetadata";
 import { goalIterationNumber } from "./goalLoopPresentation";
 import { shouldDeferRichMessageContent } from "./messageRenderBudget";
+import {
+  expandTimelineWindow,
+  preservedScrollTop,
+  resolveTimelineWindow,
+  TIMELINE_PRELOAD_MARGIN_PX,
+  type TimelineWindowState,
+  timelineWindowStart,
+} from "./timelineWindow";
+
+const EMPTY_PROCESS_ACTIVITIES: LiveActivityItem[] = [];
 
 interface VisibleMessageEntry {
   message: ChatMessage;
@@ -74,7 +93,7 @@ interface ChatMessageRowProps {
   forkingMessageIndex: number | null;
   goldenTurnsEnabled: boolean;
   isLatestEntry?: boolean;
-  messageProcessMap: Record<string, LiveActivityItem[]>;
+  persistedProcessActivities: LiveActivityItem[];
   savingGoldenMessageIndex: number | null;
   sessionId: string | null;
   showAuthorAttribution: boolean;
@@ -118,9 +137,114 @@ export function ChatMessageTimeline({
   onRevert,
   onSaveGolden,
 }: ChatMessageTimelineProps): ReactElement {
+  const latestHandlersRef = useRef({
+    onCopyMessage,
+    onForkSession,
+    onOpenArtifact,
+    onOpenImage,
+    onOpenLink,
+    onReadAloud,
+    onRevert,
+    onSaveGolden,
+  });
+  useLayoutEffect(() => {
+    latestHandlersRef.current = {
+      onCopyMessage,
+      onForkSession,
+      onOpenArtifact,
+      onOpenImage,
+      onOpenLink,
+      onReadAloud,
+      onRevert,
+      onSaveGolden,
+    };
+  });
+  const handlers = useMemo(
+    () => ({
+      onCopyMessage: (index: number, content: string) =>
+        latestHandlersRef.current.onCopyMessage(index, content),
+      onForkSession: (index: number) => latestHandlersRef.current.onForkSession(index),
+      onOpenArtifact: (artifact: ArtifactSummaryView) =>
+        latestHandlersRef.current.onOpenArtifact(artifact),
+      onOpenImage: (src: string, alt: string) => latestHandlersRef.current.onOpenImage(src, alt),
+      onOpenLink: (href: string, options: ChatLinkOpenOptions) =>
+        latestHandlersRef.current.onOpenLink(href, options),
+      onReadAloud: (index: number, content: string) =>
+        latestHandlersRef.current.onReadAloud(index, content),
+      onRevert: (target: RevertTarget) => latestHandlersRef.current.onRevert(target),
+      onSaveGolden: (index: number) => latestHandlersRef.current.onSaveGolden(index),
+    }),
+    []
+  );
+
+  const windowKey = sessionId ?? null;
+  const [windowState, setWindowState] = useState<TimelineWindowState>(() =>
+    resolveTimelineWindow(null, windowKey, entries.length)
+  );
+  const resolvedWindow = resolveTimelineWindow(windowState, windowKey, entries.length);
+  if (resolvedWindow !== windowState) setWindowState(resolvedWindow);
+  const windowStart = timelineWindowStart(resolvedWindow);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const pendingScrollRestoreRef = useRef<{
+    scroller: HTMLElement;
+    scrollTop: number;
+    scrollHeight: number;
+  } | null>(null);
+
+  const revealEarlierEntries = useCallback((): void => {
+    const scroller = findScrollContainer(sentinelRef.current);
+    pendingScrollRestoreRef.current = scroller
+      ? { scroller, scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight }
+      : null;
+    setWindowState((current) => expandTimelineWindow(current));
+  }, []);
+
+  useLayoutEffect(() => {
+    const pending = pendingScrollRestoreRef.current;
+    if (!pending) return;
+    pendingScrollRestoreRef.current = null;
+    pending.scroller.scrollTop = preservedScrollTop(
+      pending.scrollTop,
+      pending.scrollHeight,
+      pending.scroller.scrollHeight
+    );
+  }, [windowStart]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || windowStart === 0 || typeof window.IntersectionObserver !== "function") {
+      return;
+    }
+    const observer = new window.IntersectionObserver(
+      (observed) => {
+        if (observed.some((entry) => entry.isIntersecting)) revealEarlierEntries();
+      },
+      {
+        root: findScrollContainer(sentinel),
+        rootMargin: `${TIMELINE_PRELOAD_MARGIN_PX}px 0px 0px 0px`,
+      }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [revealEarlierEntries, windowStart]);
+
+  const windowedEntries = windowStart > 0 ? entries.slice(windowStart) : entries;
+
   return (
     <>
-      {entries.map((entry, visibleIndex) => {
+      {windowStart > 0 ? (
+        <div ref={sentinelRef} className="flex justify-center py-1" data-timeline-window-sentinel>
+          <button
+            type="button"
+            onClick={revealEarlierEntries}
+            className="chat-meta-text rounded-md px-2 py-1 text-gray-500 transition-colors hover:text-gray-300"
+          >
+            Show {windowStart} earlier messages
+          </button>
+        </div>
+      ) : null}
+      {windowedEntries.map((entry, windowIndex) => {
+        const visibleIndex = windowStart + windowIndex;
         const goalIteration = goalIterationNumber(entry.message);
         const key = `${entry.message.timestamp || "msg"}-${entry.originalIndex}`;
         if (goalIteration !== null) {
@@ -143,21 +267,18 @@ export function ChatMessageTimeline({
           forkingMessageIndex,
           goldenTurnsEnabled,
           isLatestEntry: visibleIndex === entries.length - 1,
-          messageProcessMap,
+          persistedProcessActivities: persistedActivitiesForEntry(
+            messageProcessMap,
+            sessionId,
+            entry
+          ),
           savingGoldenMessageIndex,
           sessionId,
           showAuthorAttribution,
           conversationStyle,
           speakingMessageIndex,
           workspaceDir,
-          onCopyMessage,
-          onForkSession,
-          onOpenArtifact,
-          onOpenImage,
-          onOpenLink,
-          onReadAloud,
-          onRevert,
-          onSaveGolden,
+          ...handlers,
         };
         return shouldDeferRichMessageContent(visibleIndex, entries.length) ? (
           <DeferredChatMessageRow key={key} {...rowProps} />
@@ -179,9 +300,39 @@ export function ChatMessageTimeline({
   );
 }
 
-function DeferredChatMessageRow(props: ChatMessageRowProps): ReactElement {
+function persistedActivitiesForEntry(
+  map: Record<string, LiveActivityItem[]>,
+  sessionId: string | null,
+  entry: VisibleMessageEntry
+): LiveActivityItem[] {
+  const activities = getMessageProcessActivities(
+    map,
+    sessionId,
+    entry.message,
+    entry.originalIndex
+  );
+  return activities.length > 0 ? activities : EMPTY_PROCESS_ACTIVITIES;
+}
+
+function findScrollContainer(element: HTMLElement | null): HTMLElement | null {
+  let current = element?.parentElement ?? null;
+  while (current) {
+    const overflowY = window.getComputedStyle(current).overflowY;
+    if (overflowY === "auto" || overflowY === "scroll") return current;
+    current = current.parentElement;
+  }
+  return null;
+}
+
+const DeferredChatMessageRow = memo(function DeferredChatMessageRow(
+  props: ChatMessageRowProps
+): ReactElement {
   const { message } = props.entry;
   const [richMessage, setRichMessage] = useState<ChatMessage | null>(null);
+  const richEntry = useMemo(
+    () => (richMessage ? { ...props.entry, message: richMessage } : null),
+    [props.entry, richMessage]
+  );
   const rowRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const element = rowRef.current;
@@ -202,8 +353,8 @@ function DeferredChatMessageRow(props: ChatMessageRowProps): ReactElement {
       stopObserving();
     };
   }, [message, props.sessionId, richMessage]);
-  if (richMessage) {
-    return <ChatMessageRow {...props} entry={{ ...props.entry, message: richMessage }} />;
+  if (richEntry) {
+    return <ChatMessageRow {...props} entry={richEntry} />;
   }
   return (
     <div
@@ -231,16 +382,16 @@ function DeferredChatMessageRow(props: ChatMessageRowProps): ReactElement {
       </div>
     </div>
   );
-}
+});
 
-function ChatMessageRow({
+const ChatMessageRow = memo(function ChatMessageRow({
   compact,
   copiedMessageIndex,
   entry: { message, originalIndex, turnStartedAtMs },
   forkingMessageIndex,
   goldenTurnsEnabled,
   isLatestEntry,
-  messageProcessMap,
+  persistedProcessActivities,
   savingGoldenMessageIndex,
   sessionId,
   showAuthorAttribution,
@@ -260,37 +411,10 @@ function ChatMessageRow({
     message.role === "assistant"
       ? presentProviderProtocolText(message.content).content
       : message.content;
-  const persistedProcessActivities = getMessageProcessActivities(
-    messageProcessMap,
-    sessionId,
-    message,
-    originalIndex
+  const processActivities = useMemo(
+    () => completedMessageActivities(message, persistedProcessActivities, turnStartedAtMs),
+    [message, persistedProcessActivities, turnStartedAtMs]
   );
-  const embeddedProcessActivities = normalizeMessageProcessActivities(
-    message.process_activities,
-    parseTimestampMs(message.timestamp) ?? turnStartedAtMs
-  );
-  const restoredProcessActivities = mergeActivityLists(
-    persistedProcessActivities,
-    embeddedProcessActivities
-  );
-  const fallbackToolActivities =
-    restoredProcessActivities.length === 0
-      ? buildActivitiesFromToolCalls(message.tool_calls, formatToolIntent, {
-          baseTimestampMs: parseTimestampMs(message.timestamp) ?? turnStartedAtMs ?? 0,
-        })
-      : [];
-  const mergedActivities = suppressRecoveredWebFailureActivities(
-    mergeActivityLists(restoredProcessActivities, fallbackToolActivities),
-    message.tool_calls
-  );
-  const completedActivities =
-    mergedActivities.length > 0 ? finalizeCompletedActivities(mergedActivities) : [];
-  const detailedActivities = enrichActivitiesWithToolCallDetails(
-    completedActivities,
-    message.tool_calls
-  );
-  const processActivities = detailedActivities.length > 0 ? detailedActivities : undefined;
   const interactiveClarify = isLatestEntry
     ? clarifyQuestionFromToolCalls(message.tool_calls)
     : null;
@@ -422,6 +546,38 @@ function ChatMessageRow({
       </div>
     </div>
   );
+});
+
+function completedMessageActivities(
+  message: ChatMessage,
+  persistedProcessActivities: LiveActivityItem[],
+  turnStartedAtMs: number | undefined
+): LiveActivityItem[] | undefined {
+  const embeddedProcessActivities = normalizeMessageProcessActivities(
+    message.process_activities,
+    parseTimestampMs(message.timestamp) ?? turnStartedAtMs
+  );
+  const restoredProcessActivities = mergeActivityLists(
+    persistedProcessActivities,
+    embeddedProcessActivities
+  );
+  const fallbackToolActivities =
+    restoredProcessActivities.length === 0
+      ? buildActivitiesFromToolCalls(message.tool_calls, formatToolIntent, {
+          baseTimestampMs: parseTimestampMs(message.timestamp) ?? turnStartedAtMs ?? 0,
+        })
+      : [];
+  const mergedActivities = suppressRecoveredWebFailureActivities(
+    mergeActivityLists(restoredProcessActivities, fallbackToolActivities),
+    message.tool_calls
+  );
+  const completedActivities =
+    mergedActivities.length > 0 ? finalizeCompletedActivities(mergedActivities) : [];
+  const detailedActivities = enrichActivitiesWithToolCallDetails(
+    completedActivities,
+    message.tool_calls
+  );
+  return detailedActivities.length > 0 ? detailedActivities : undefined;
 }
 
 function AssistantAvatar({ message }: { message: ChatMessage }): ReactElement {

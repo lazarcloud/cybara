@@ -141,6 +141,23 @@ export async function loadChatImageSource(
   return shared;
 }
 
+export async function loadChatImageSourceWithRetry(
+  source: string,
+  retries = 2,
+  delayMs = 500,
+  load: (source: string) => Promise<LoadedChatImageSource> = loadChatImageSource,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+): Promise<LoadedChatImageSource> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await load(source);
+    } catch (error) {
+      if (attempt >= retries) throw error;
+      await wait(delayMs * (attempt + 1));
+    }
+  }
+}
+
 export function chatMarkdownImageSources(content: string): string[] {
   const sources: string[] = [];
   const seenSources = new Set<string>();

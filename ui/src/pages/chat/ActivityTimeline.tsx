@@ -9,6 +9,7 @@ import {
   Folder,
   Globe2,
   ImageIcon,
+  ImageOff,
   Loader2,
   type LucideIcon,
   Pencil,
@@ -25,7 +26,7 @@ import {
   mergeActivityLists,
 } from "@/lib/chatActivities";
 import { openChatImageLightbox } from "@/lib/chatImageLightbox";
-import { loadChatImageSource, peekChatImageSource } from "@/lib/chatImages";
+import { loadChatImageSourceWithRetry, peekChatImageSource } from "@/lib/chatImages";
 import { cn } from "@/lib/utils";
 import { formatWorkedDuration } from "./assistantMetaModel";
 import {
@@ -61,7 +62,7 @@ export function ImageViewedThumbnail({ source, alt }: { source: string; alt: str
     let revoke: (() => void) | undefined;
     setFailed(false);
     if (!peekChatImageSource(source)) setDisplaySource(null);
-    void loadChatImageSource(source)
+    void loadChatImageSourceWithRetry(source)
       .then((loaded) => {
         if (!active) {
           loaded.revoke?.();
@@ -79,7 +80,18 @@ export function ImageViewedThumbnail({ source, alt }: { source: string; alt: str
     };
   }, [source]);
 
-  if (failed) return null;
+  if (failed) {
+    return (
+      <span
+        data-testid="activity-image-viewed-unavailable"
+        title={`${alt} is no longer available`}
+        className="flex h-28 w-44 shrink-0 flex-col items-center justify-center gap-1.5 rounded-md border border-white/10 bg-black/30 px-2 text-center text-gray-500"
+      >
+        <ImageOff className="h-4 w-4" />
+        <span className="chat-meta-text max-w-full truncate">{alt}</span>
+      </span>
+    );
+  }
   return (
     <button
       type="button"

@@ -10,13 +10,19 @@ import { KeyedSerialTaskQueue } from "../keyed-serial-task-queue";
 import { systemLogger } from "../logging";
 import { cybaraDir } from "../paths";
 import {
-  browserExecutableLabel,
   browserLaunchArgs,
   buildBrowserLaunchPlan,
+  buildWindowsLaunchOrder,
   findBundledBrowserExecutable,
   findSystemBrowserExecutable,
   findSystemBrowserExecutables,
+  isGoogleChromeExecutable,
 } from "./browser-executable";
+import {
+  chromeForTestingAutoInstallEnabled,
+  findInstalledChromeForTesting,
+  installChromeForTesting,
+} from "./chrome-for-testing";
 import {
   type AutomationBrowser as Browser,
   type AutomationContext as BrowserContext,
@@ -30,7 +36,11 @@ import {
   wrapPlaywrightBrowser,
 } from "./automation-driver";
 import { findHermeticPlaywrightBrowserPath, getChromium } from "./playwright-loader";
-import { normalizePageCursor, pageCursorProbeScript } from "./preview-cursor";
+import {
+  normalizePageCursor,
+  pageCursorProbeScript,
+  shouldBroadcastPointerChange,
+} from "./preview-cursor";
 import {
   type BrowserDownloadPolicy,
   type BrowserSupervisionStatus,
@@ -68,33 +78,45 @@ async function launchWithFallback(
   const attempts: Array<{
     label: string;
     executablePath?: string;
+    restartsBudget?: boolean;
     launch(timeout: number): Promise<Browser>;
   }> = [];
 
   if (automationDriverForPlatform(process.platform) === "puppeteer") {
-    const normalizePath = (value: string) => value.toLowerCase();
-    const explicitMatch = explicitExecutable
-      ? systemExecutables.find(
-          (candidate) => normalizePath(candidate) === normalizePath(explicitExecutable)
-        )
-      : undefined;
-    const executables = [explicitMatch, bundledExecutable, ...systemExecutables]
-      .filter((value): value is string => typeof value === "string")
-      .filter(
-        (value, index, values) =>
-          values.findIndex((candidate) => normalizePath(candidate) === normalizePath(value)) ===
-          index
-      );
-    for (const executablePath of executables) {
-      const label =
-        executablePath === bundledExecutable
-          ? "Packaged Chromium"
-          : browserExecutableLabel(executablePath);
+    const targets = buildWindowsLaunchOrder({
+      explicitExecutable,
+      bundledExecutable,
+      chromeForTestingExecutable: await findInstalledChromeForTesting(),
+      systemExecutables,
+    });
+    for (const target of targets) {
       attempts.push({
-        label,
-        executablePath,
+        label: target.label,
+        executablePath: target.executablePath,
         launch: async (timeout) =>
-          await launchPuppeteerBrowser({ executablePath, headless, args, timeout }),
+          await launchPuppeteerBrowser({
+            executablePath: target.executablePath,
+            headless,
+            args,
+            timeout,
+          }),
+      });
+    }
+    const hasChrome = targets.some(
+      (target) =>
+        target.label === "Chrome for Testing" || isGoogleChromeExecutable(target.executablePath)
+    );
+    if (!hasChrome && chromeForTestingAutoInstallEnabled()) {
+      const edgeIndex = attempts.findIndex((attempt) => attempt.label === "Microsoft Edge");
+      attempts.splice(edgeIndex >= 0 ? edgeIndex : attempts.length, 0, {
+        label: "Google Chrome download",
+        restartsBudget: true,
+        launch: async (timeout) => {
+          const executablePath = await installChromeForTesting((progress) => {
+            browserLaunchState = { ...browserLaunchState, phase: "starting", attempt: progress };
+          });
+          return await launchPuppeteerBrowser({ executablePath, headless, args, timeout });
+        },
       });
     }
   } else {
@@ -126,7 +148,7 @@ async function launchWithFallback(
   }
 
   const failures: string[] = [];
-  const startedAt = Date.now();
+  let startedAt = Date.now();
   const total = attempts.length;
   let attempted = 0;
 
@@ -176,6 +198,7 @@ async function launchWithFallback(
   for (const attempt of attempts) {
     const browser = await launchAttempt(attempt);
     if (browser) return browser;
+    if (attempt.restartsBudget) startedAt = Date.now();
   }
   browserLaunchState = {
     phase: "failed",
@@ -231,6 +254,7 @@ let legacyContext: BrowserContext | null = null;
 const legacyPages = new Map<string, Page>();
 const consoleLogs = new Map<string, Array<{ type: string; text: string; location?: string }>>();
 const pointerStates = new Map<string, BrowserPointerState>();
+const pointerListeners = new Map<string, Set<(pointer: BrowserPointerState) => void>>();
 const viewportModes = new Map<string, BrowserViewportMode>();
 const viewportResizeQueue = new KeyedSerialTaskQueue();
 const preparedPreviewPages = new WeakSet<Page>();
@@ -1013,7 +1037,7 @@ export async function drag(
 async function recordPointerFromLocator(pageId: string, locator: Locator): Promise<void> {
   const box = await locator.boundingBox();
   if (!box) return;
-  pointerStates.set(pageId, {
+  setPointerState(pageId, {
     x: Math.round(box.x + box.width / 2),
     y: Math.round(box.y + box.height / 2),
     visible: true,
@@ -1080,7 +1104,7 @@ async function movePagePointer(
   source: BrowserPointerState["source"]
 ): Promise<void> {
   await page.mouse.move(x, y);
-  pointerStates.set(pageId, {
+  setPointerState(pageId, {
     x,
     y,
     visible: true,
@@ -1097,7 +1121,38 @@ function setPointerAction(
 ): void {
   const pointer = pointerStates.get(pageId);
   if (!pointer) return;
-  pointerStates.set(pageId, { ...pointer, action, source, updatedAt: Date.now() });
+  setPointerState(pageId, { ...pointer, action, source, updatedAt: Date.now() });
+}
+
+function setPointerState(pageId: string, next: BrowserPointerState): void {
+  const previous = pointerStates.get(pageId);
+  pointerStates.set(pageId, next);
+  if (!shouldBroadcastPointerChange(previous, next)) return;
+  for (const listener of pointerListeners.get(pageId) ?? []) {
+    try {
+      listener(next);
+    } catch {
+      continue;
+    }
+  }
+}
+
+export function onBrowserPointerChange(
+  pageId: string,
+  listener: (pointer: BrowserPointerState) => void
+): () => void {
+  let listeners = pointerListeners.get(pageId);
+  if (!listeners) {
+    listeners = new Set();
+    pointerListeners.set(pageId, listeners);
+  }
+  listeners.add(listener);
+  return () => {
+    const current = pointerListeners.get(pageId);
+    if (!current) return;
+    current.delete(listener);
+    if (current.size === 0) pointerListeners.delete(pageId);
+  };
 }
 
 export function getPointerState(pageId: string): BrowserPointerState | null {

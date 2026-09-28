@@ -134,32 +134,29 @@ describe("mobile chat scroll", () => {
     expect(harness.scrolls()).toBe(2);
   });
 
-  test.each([
-    NaN,
-    Infinity,
-    -Infinity,
-    2303,
-  ])("does not follow invalid or distant offsets: %s", (offset) => {
-    const harness = createScrollHarness();
-    harness.controller.onScrollBeginDrag();
-    harness.controller.onScrollEndDrag(scrollEvent(offset));
-    harness.controller.onContentSizeChange();
-    harness.flush();
-    expect(harness.scrolls()).toBe(0);
-  });
+  test.each([NaN, Infinity, -Infinity, 2303])(
+    "does not follow invalid or distant offsets: %s",
+    (offset) => {
+      const harness = createScrollHarness();
+      harness.controller.onScrollBeginDrag();
+      harness.controller.onScrollEndDrag(scrollEvent(offset));
+      harness.controller.onContentSizeChange();
+      harness.flush();
+      expect(harness.scrolls()).toBe(0);
+    }
+  );
 
-  test.each([
-    scrollEvent(0, 0),
-    scrollEvent(0, 100),
-    scrollEvent(2450),
-  ])("handles empty transcripts, short replies, and bottom overscroll", (event) => {
-    const harness = createScrollHarness();
-    harness.controller.onScrollBeginDrag();
-    harness.controller.onScrollEndDrag(event);
-    harness.controller.onContentSizeChange();
-    harness.flush();
-    expect(harness.scrolls()).toBe(1);
-  });
+  test.each([scrollEvent(0, 0), scrollEvent(0, 100), scrollEvent(2450)])(
+    "handles empty transcripts, short replies, and bottom overscroll",
+    (event) => {
+      const harness = createScrollHarness();
+      harness.controller.onScrollBeginDrag();
+      harness.controller.onScrollEndDrag(event);
+      harness.controller.onContentSizeChange();
+      harness.flush();
+      expect(harness.scrolls()).toBe(1);
+    }
+  );
 
   test("unmount cancels pending work and a new chat starts at the bottom", () => {
     const previous = createScrollHarness();

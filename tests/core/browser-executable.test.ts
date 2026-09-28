@@ -7,7 +7,10 @@ import {
   browserExecutableCandidates,
   browserLaunchArgs,
   buildBrowserLaunchPlan,
+  buildWindowsLaunchOrder,
   findBundledBrowserExecutable,
+  isGoogleChromeExecutable,
+  parseRegistryDefaultValue,
 } from "../../src/core/browser/browser-executable";
 import {
   configureHermeticPlaywrightBrowserPath,
@@ -121,10 +124,153 @@ describe("browser executable discovery", () => {
     expect(args).toContain("--window-position=-32000,-32000");
   });
 
+  test("keeps off-screen Windows browser windows painting for the live preview", () => {
+    expect(browserLaunchArgs("win32", {})).toContain(
+      "--disable-features=CalculateNativeWinOcclusion"
+    );
+    expect(browserLaunchArgs("darwin", {}).join(" ")).not.toContain("CalculateNativeWinOcclusion");
+  });
+
   test("allows an explicit Linux container sandbox override", () => {
     expect(browserLaunchArgs("linux", { CYBARA_BROWSER_DISABLE_SANDBOX: "true" })).toContain(
       "--no-sandbox"
     );
+  });
+});
+
+describe("Windows browser launch order", () => {
+  const chrome = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+  const userChrome = "C:\\Users\\cj\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe";
+  const edge = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+  const brave = "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe";
+  const chromium = "C:\\Program Files\\Chromium\\Application\\chrome.exe";
+  const packaged =
+    "C:\\Cybara\\node_modules\\playwright-core\\.local-browsers\\chromium-1\\chrome-win\\chrome.exe";
+  const cft = "C:\\Users\\cj\\.cybara\\browsers\\chrome\\win64-140.0.0.0\\chrome-win64\\chrome.exe";
+
+  test("prefers installed Google Chrome over packaged Chromium and Edge", () => {
+    const order = buildWindowsLaunchOrder({
+      bundledExecutable: packaged,
+      chromeForTestingExecutable: null,
+      systemExecutables: [edge, brave, chrome],
+    });
+    expect(order.map((target) => target.label)).toEqual([
+      "Google Chrome",
+      "Packaged Chromium",
+      "Brave",
+      "Microsoft Edge",
+    ]);
+    expect(order[0]?.executablePath).toBe(chrome);
+    expect(order.at(-1)?.executablePath).toBe(edge);
+  });
+
+  test("uses Chrome for Testing before Edge when Chrome is not installed", () => {
+    const order = buildWindowsLaunchOrder({
+      bundledExecutable: null,
+      chromeForTestingExecutable: cft,
+      systemExecutables: [edge, chromium],
+    });
+    expect(order.map((target) => target.label)).toEqual([
+      "Chrome for Testing",
+      "Chromium",
+      "Microsoft Edge",
+    ]);
+  });
+
+  test("keeps every Chrome install and dedupes case-insensitively", () => {
+    const order = buildWindowsLaunchOrder({
+      bundledExecutable: null,
+      chromeForTestingExecutable: null,
+      systemExecutables: [edge, chrome, chrome.toUpperCase(), userChrome],
+    });
+    expect(order.map((target) => target.executablePath)).toEqual([chrome, userChrome, edge]);
+  });
+
+  test("an explicitly configured Edge still wins because the user asked for it", () => {
+    const order = buildWindowsLaunchOrder({
+      explicitExecutable: edge.toLowerCase(),
+      bundledExecutable: packaged,
+      chromeForTestingExecutable: null,
+      systemExecutables: [edge, chrome],
+    });
+    expect(order[0]).toEqual({ label: "configured browser", executablePath: edge });
+    expect(order.filter((target) => target.executablePath === edge)).toHaveLength(1);
+  });
+
+  test("ignores a configured path that does not exist on disk", () => {
+    const order = buildWindowsLaunchOrder({
+      explicitExecutable: "C:\\missing\\chrome.exe",
+      bundledExecutable: null,
+      chromeForTestingExecutable: null,
+      systemExecutables: [chrome],
+    });
+    expect(order).toEqual([{ label: "Google Chrome", executablePath: chrome }]);
+  });
+
+  test("returns nothing when no browser is available", () => {
+    expect(
+      buildWindowsLaunchOrder({
+        bundledExecutable: null,
+        chromeForTestingExecutable: null,
+        systemExecutables: [],
+      })
+    ).toEqual([]);
+  });
+
+  test("identifies Google Chrome channels but not other Chromium builds", () => {
+    expect(isGoogleChromeExecutable(chrome)).toBe(true);
+    expect(
+      isGoogleChromeExecutable(
+        "C:\\Users\\cj\\AppData\\Local\\Google\\Chrome SxS\\Application\\chrome.exe"
+      )
+    ).toBe(true);
+    expect(isGoogleChromeExecutable(chromium)).toBe(false);
+    expect(isGoogleChromeExecutable(cft)).toBe(false);
+    expect(isGoogleChromeExecutable(edge)).toBe(false);
+  });
+
+  test("covers Chrome Beta and Canary install locations", () => {
+    const candidates = browserExecutableCandidates("win32", {
+      ProgramFiles: "C:\\Program Files",
+      LOCALAPPDATA: "C:\\Users\\cj\\AppData\\Local",
+    });
+    expect(candidates).toContain("C:\\Program Files\\Google\\Chrome Beta\\Application\\chrome.exe");
+    expect(candidates).toContain(
+      "C:\\Users\\cj\\AppData\\Local\\Google\\Chrome SxS\\Application\\chrome.exe"
+    );
+    expect(candidates.indexOf("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")).toBe(
+      0
+    );
+  });
+});
+
+describe("parseRegistryDefaultValue", () => {
+  test("reads the App Paths default value from reg query output", () => {
+    const output = [
+      "",
+      "HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe",
+      "    (Default)    REG_SZ    D:\\Tools\\Google\\Chrome\\Application\\chrome.exe",
+      "",
+    ].join("\r\n");
+    expect(parseRegistryDefaultValue(output)).toBe(
+      "D:\\Tools\\Google\\Chrome\\Application\\chrome.exe"
+    );
+  });
+
+  test("unquotes values and accepts expandable strings", () => {
+    expect(
+      parseRegistryDefaultValue(
+        '    (Default)    REG_EXPAND_SZ    "%LOCALAPPDATA%\\Google\\Chrome\\Application\\chrome.exe"'
+      )
+    ).toBe("%LOCALAPPDATA%\\Google\\Chrome\\Application\\chrome.exe");
+  });
+
+  test("returns null for missing keys or empty values", () => {
+    expect(parseRegistryDefaultValue("ERROR: The system was unable to find the specified")).toBe(
+      null
+    );
+    expect(parseRegistryDefaultValue("    (Default)    REG_SZ    ")).toBe(null);
+    expect(parseRegistryDefaultValue("")).toBe(null);
   });
 });
 
