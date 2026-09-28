@@ -72,6 +72,7 @@
     "@aws-sdk/client-bedrock-runtime": "3.1141.0",
     "@huggingface/transformers": "4.3.0",
     "@lobehub/icons": "5.21.0",
+    "@puppeteer/browsers": "3.0.5",
     "@scure/bip39": "2.4.0",
     "@slack/bolt": "4.7.3",
     "@smithy/types": "4.19.0",

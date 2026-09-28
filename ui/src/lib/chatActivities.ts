@@ -57,18 +57,32 @@ function gatewayMediaUrl(path: string): string {
   return `${base}/api/media?path=${encodeURIComponent(path)}`;
 }
 
+const windowsAbsolutePathPattern = /^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/])/;
+
+function isAbsoluteLocalPath(value: string): boolean {
+  return value.startsWith("/") || windowsAbsolutePathPattern.test(value);
+}
+
+function localPathFromFileUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    const pathname = decodeURIComponent(url.pathname);
+    if (url.host) return `\\\\${url.host}${pathname.replace(/\//g, "\\")}`;
+    return /^\/[A-Za-z]:\//.test(pathname) ? pathname.slice(1) : pathname;
+  } catch {
+    return undefined;
+  }
+}
+
 function toLoadableImageSource(value: string): string | undefined {
   if (value.startsWith("data:")) return imageDataUrlPattern.test(value) ? value : undefined;
   if (/^https?:\/\//i.test(value)) return isImagePath(value) ? value : undefined;
   if (/^file:\/\//i.test(value)) {
-    try {
-      return gatewayMediaUrl(decodeURIComponent(new URL(value).pathname));
-    } catch {
-      return undefined;
-    }
+    const localPath = localPathFromFileUrl(value);
+    return localPath && isImagePath(localPath) ? gatewayMediaUrl(localPath) : undefined;
   }
   if (value.includes("/api/media?path=")) return isImagePath(value) ? value : undefined;
-  if (!value.startsWith("/")) return undefined;
+  if (!isAbsoluteLocalPath(value)) return undefined;
   return isImagePath(value) ? gatewayMediaUrl(value) : undefined;
 }
 

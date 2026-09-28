@@ -23,6 +23,7 @@ interface BrowserPreviewImageProps {
   onFramePresented: (presented: boolean) => void;
   onStreamError: (message: string) => void;
   onPageCursor: (cursor: string) => void;
+  onAgentPointer: (pointer: unknown) => void;
 }
 
 function browserStreamUrl(path: string): string {
@@ -47,6 +48,12 @@ function browserStreamCursor(value: unknown): string | null {
   return message.type === "cursor" && typeof message.cursor === "string" ? message.cursor : null;
 }
 
+function browserStreamPointer(value: unknown): unknown {
+  if (!value || typeof value !== "object") return undefined;
+  const message = value as { type?: unknown; pointer?: unknown };
+  return message.type === "pointer" ? message.pointer : undefined;
+}
+
 function frameBlob(value: unknown): Blob | null {
   if (value instanceof Blob) return value;
   if (value instanceof ArrayBuffer) return new Blob([value], { type: "image/jpeg" });
@@ -58,6 +65,43 @@ interface DecodedBrowserFrame {
   width: number;
   height: number;
   release: () => void;
+}
+
+type BrowserFrameCanvasContext =
+  | { kind: "bitmap"; context: ImageBitmapRenderingContext }
+  | { kind: "2d"; context: CanvasRenderingContext2D }
+  | { kind: "none" };
+
+function browserFrameCanvasContext(canvas: HTMLCanvasElement): BrowserFrameCanvasContext {
+  const bitmap =
+    typeof window.createImageBitmap === "function" ? canvas.getContext("bitmaprenderer") : null;
+  if (bitmap) return { kind: "bitmap", context: bitmap };
+  const context = canvas.getContext("2d", { alpha: false });
+  return context ? { kind: "2d", context } : { kind: "none" };
+}
+
+function paintBrowserFrame(
+  canvas: HTMLCanvasElement,
+  target: BrowserFrameCanvasContext,
+  frame: DecodedBrowserFrame,
+  frameSize: { width: number; height: number }
+): boolean {
+  if (target.kind === "bitmap") {
+    if (!(frame.source instanceof ImageBitmap)) return false;
+    if (canvas.width !== frame.width || canvas.height !== frame.height) {
+      canvas.width = frame.width;
+      canvas.height = frame.height;
+    }
+    target.context.transferFromImageBitmap(frame.source);
+    return true;
+  }
+  if (target.kind !== "2d") return false;
+  if (canvas.width !== frameSize.width || canvas.height !== frameSize.height) {
+    canvas.width = frameSize.width;
+    canvas.height = frameSize.height;
+  }
+  target.context.drawImage(frame.source, 0, 0, frameSize.width, frameSize.height);
+  return true;
 }
 
 async function decodeBrowserFrame(frame: Blob): Promise<DecodedBrowserFrame> {
@@ -107,16 +151,18 @@ export function BrowserPreviewImage({
   onFramePresented,
   onStreamError,
   onPageCursor,
+  onAgentPointer,
 }: BrowserPreviewImageProps) {
   const imageRef = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const canvasContextRef = useRef<CanvasRenderingContext2D | null>(null);
+  const canvasContextRef = useRef<BrowserFrameCanvasContext | null>(null);
   const fallbackSourceRef = useRef(fallbackSource);
   const connectedRef = useRef(false);
   const connectionChangeRef = useRef(onConnectionChange);
   const framePresentedRef = useRef(onFramePresented);
   const streamErrorRef = useRef(onStreamError);
   const pageCursorRef = useRef(onPageCursor);
+  const agentPointerRef = useRef(onAgentPointer);
   const lastPresentedValueRef = useRef(false);
 
   const notifyFramePresented = (presented: boolean): void => {
@@ -130,7 +176,8 @@ export function BrowserPreviewImage({
     framePresentedRef.current = onFramePresented;
     streamErrorRef.current = onStreamError;
     pageCursorRef.current = onPageCursor;
-  }, [onConnectionChange, onFramePresented, onStreamError, onPageCursor]);
+    agentPointerRef.current = onAgentPointer;
+  }, [onConnectionChange, onFramePresented, onStreamError, onPageCursor, onAgentPointer]);
 
   useEffect(() => {
     fallbackSourceRef.current = fallbackSource;
@@ -157,12 +204,12 @@ export function BrowserPreviewImage({
     let lastPaintAt = 0;
     const clearStreamFrame = (): void => {
       const canvas = canvasRef.current;
-      const context = canvasContextRef.current;
       if (canvas) canvas.style.visibility = "hidden";
       hasStreamFrame = false;
-      if (canvas && context) context.clearRect(0, 0, canvas.width, canvas.height);
-      canvasContextRef.current = null;
-      if (canvas) {
+      const target = canvasContextRef.current;
+      if (canvas && target?.kind === "bitmap") target.context.transferFromImageBitmap(null);
+      if (canvas && target?.kind === "2d") {
+        target.context.clearRect(0, 0, canvas.width, canvas.height);
         canvas.width = 1;
         canvas.height = 1;
       }
@@ -174,24 +221,17 @@ export function BrowserPreviewImage({
         return;
       }
       const frameSize = containBrowserPreviewFrame(frame.width, frame.height, maxWidth, maxHeight);
-      if (canvas.width !== frameSize.width || canvas.height !== frameSize.height) {
-        canvas.width = frameSize.width;
-        canvas.height = frameSize.height;
-        canvasContextRef.current = null;
-      }
-      const context =
-        canvasContextRef.current ?? canvas.getContext("2d", { alpha: false, desynchronized: true });
-      canvasContextRef.current = context;
       try {
-        context?.drawImage(frame.source, 0, 0, frameSize.width, frameSize.height);
-        hasStreamFrame = Boolean(context);
-        if (context) {
+        const context = (canvasContextRef.current ??= browserFrameCanvasContext(canvas));
+        const painted = paintBrowserFrame(canvas, context, frame, frameSize);
+        hasStreamFrame = painted;
+        if (painted) {
           streamFrameVersion += 1;
           if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
           fallbackTimer = null;
           canvas.style.visibility = "visible";
         }
-        notifyFramePresented(Boolean(context));
+        notifyFramePresented(painted);
       } finally {
         frame.release();
       }
@@ -301,6 +341,11 @@ export function BrowserPreviewImage({
             const cursor = browserStreamCursor(value);
             if (cursor) {
               pageCursorRef.current(cursor);
+              return;
+            }
+            const pointer = browserStreamPointer(value);
+            if (pointer !== undefined) {
+              agentPointerRef.current(pointer);
               return;
             }
             if (

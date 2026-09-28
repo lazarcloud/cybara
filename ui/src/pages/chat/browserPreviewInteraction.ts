@@ -30,6 +30,15 @@ function boundedDelta(value: number): number {
   return Math.min(BROWSER_SCROLL_DELTA_LIMIT, Math.max(-BROWSER_SCROLL_DELTA_LIMIT, value));
 }
 
+export function newestBrowserPointer<Pointer extends { updatedAt: number }>(
+  streamed: Pointer | null,
+  polled: Pointer | null
+): Pointer | null {
+  if (!streamed) return polled;
+  if (!polled) return streamed;
+  return streamed.updatedAt >= polled.updatedAt ? streamed : polled;
+}
+
 export function normalizeBrowserWheelDelta(
   deltaX: number,
   deltaY: number,

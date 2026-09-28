@@ -207,10 +207,11 @@ describe("chat workspace panel", () => {
     expect(browserImageSource).toContain("LatestBrowserFrameDecoder");
     expect(browserImageSource).toContain("image.src = source");
     expect(browserImageSource).toContain("window.createImageBitmap(frame)");
-    expect(browserImageSource).toContain(
-      'canvas.getContext("2d", { alpha: false, desynchronized: true })'
-    );
-    expect(browserImageSource).toContain("context?.drawImage");
+    expect(browserImageSource).toContain('canvas.getContext("bitmaprenderer")');
+    expect(browserImageSource).toContain("target.context.transferFromImageBitmap(frame.source)");
+    expect(browserImageSource).toContain('canvas.getContext("2d", { alpha: false })');
+    expect(browserImageSource).not.toContain("desynchronized");
+    expect(browserImageSource).toContain("target.context.drawImage");
     expect(browserImageSource).not.toContain("setStreamSource");
     expect(browserImageSource).toContain("notifyFramePresented(false)");
     expect(browserImageSource).toContain("lastPresentedValueRef.current === presented");
@@ -245,7 +246,10 @@ describe("chat workspace panel", () => {
     expect(browserSource).toContain('sendPageInput(page, { type: "pointer_up"');
     expect(browserSource).toContain('sendPageInput(page, { type: "scroll"');
     expect(browserSource).toContain('sendPageInput(page, { type: "keyboard"');
-    expect(browserSource).toContain("transition-transform duration-75");
+    expect(browserSource).toContain("transition-transform duration-150");
+    expect(browserSource).toContain("onAgentPointer={handleAgentPointer}");
+    expect(browserSource).toContain("newestBrowserPointer(streamedCursor");
+    expect(browserImageSource).toContain('message.type === "pointer"');
     expect(browserSource).not.toContain(">\n              Agent\n");
     expect(browserImageSource).toContain("absolute inset-0 h-full w-full");
     expect(browserImageSource).toContain("object-contain");

@@ -42,8 +42,16 @@ import {
   executeBrowserPreviewInput,
   parseBrowserPreviewInput,
 } from "./core/browser/preview-stream-input";
-import { BrowserPreviewCursorTracker } from "./core/browser/preview-cursor";
-import { pageCursorAt } from "./core/browser/pw-manager";
+import {
+  BrowserPreviewCursorTracker,
+  browserPointerStreamMessage,
+} from "./core/browser/preview-cursor";
+import {
+  type BrowserPointerState,
+  getPointerState,
+  onBrowserPointerChange,
+  pageCursorAt,
+} from "./core/browser/pw-manager";
 import {
   channelManager,
   dingtalkAdapter,
@@ -391,6 +399,7 @@ type WsData =
       closed?: boolean;
       inputQueue?: BrowserPreviewInputQueue;
       cursorTracker?: BrowserPreviewCursorTracker;
+      unsubscribePointer?: () => void;
     };
 
 function browserStreamPageId(pathname: string): string | null {
@@ -944,6 +953,17 @@ function createGatewayServer(
             }
           );
           data.cursorTracker = cursorTracker;
+          const sendPointer = (pointer: BrowserPointerState): void => {
+            if (data.closed) return;
+            try {
+              ws.send(browserPointerStreamMessage(pointer));
+            } catch {
+              return;
+            }
+          };
+          data.unsubscribePointer = onBrowserPointerChange(data.pageId, sendPointer);
+          const initialPointer = getPointerState(data.pageId);
+          if (initialPointer?.source === "agent") sendPointer(initialPointer);
           data.inputQueue = new BrowserPreviewInputQueue(
             async (input) => {
               await executeBrowserPreviewInput(data.pageId, input);
@@ -1078,6 +1098,7 @@ function createGatewayServer(
         }
         if (data.kind === "browser") {
           data.closed = true;
+          data.unsubscribePointer?.();
           data.inputQueue?.dispose();
           data.cursorTracker?.dispose();
           void data.unsubscribe?.();

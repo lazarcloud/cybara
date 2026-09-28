@@ -38,6 +38,38 @@ const PAGE_CURSOR_KEYWORDS = new Set([
 
 export const PAGE_CURSOR_PROBE_INTERVAL_MS = 50;
 
+interface PointerSourceState {
+  source: "agent" | "user";
+}
+
+export function shouldBroadcastPointerChange(
+  previous: PointerSourceState | undefined,
+  next: PointerSourceState
+): boolean {
+  return next.source === "agent" || previous?.source === "agent";
+}
+
+export function browserPointerStreamMessage(pointer: {
+  x: number;
+  y: number;
+  visible: boolean;
+  updatedAt: number;
+  action: "move" | "click" | "type";
+  source: "agent" | "user";
+}): string {
+  return JSON.stringify({
+    type: "pointer",
+    pointer: {
+      x: pointer.x,
+      y: pointer.y,
+      visible: pointer.visible,
+      updatedAt: pointer.updatedAt,
+      action: pointer.action,
+      source: pointer.source,
+    },
+  });
+}
+
 export function normalizePageCursor(value: unknown): string {
   if (typeof value !== "string") return "default";
   const keyword = value.split(",").at(-1)?.trim().toLowerCase() ?? "";

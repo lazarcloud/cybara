@@ -36,6 +36,7 @@ import {
   BrowserScrollBatcher,
   browserPreviewKeyboardKey,
   decodeBrowserPreviewImage,
+  newestBrowserPointer,
   normalizeBrowserWheelDelta,
 } from "./browserPreviewInteraction";
 import {
@@ -134,6 +135,7 @@ function browserStartupLabel(status: BrowserLaunchStatus | null): string {
   if (!status || status.phase === "idle") return "Checking installed browsers";
   if (status.phase === "failed") return status.error || "Browser preview could not start";
   if (status.phase === "running") return "Preparing browser preview";
+  if (status.attempt?.startsWith("Downloading ")) return status.attempt;
   const progress =
     status.attempted && status.total ? ` (${status.attempted} of ${status.total})` : "";
   return `Starting ${status.attempt || "browser"}${progress}`;
@@ -293,6 +295,14 @@ export function ChatWorkspaceBrowser({
   const [displayedPreview, setDisplayedPreview] = useState<BrowserPreview | null>(null);
   const [streamFrameVisible, setStreamFrameVisible] = useState(false);
   const [pageCursor, setPageCursor] = useState("default");
+  const [streamedCursor, setStreamedCursor] = useState<BrowserCursor | null>(null);
+  const handleAgentPointer = useCallback((value: unknown): void => {
+    const next = parseBrowserCursor(value);
+    if (!next) return;
+    setStreamedCursor((current) =>
+      current && current.updatedAt > next.updatedAt ? current : next
+    );
+  }, []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [startupLabel, setStartupLabel] = useState("Checking installed browsers");
@@ -1026,8 +1036,9 @@ export function ChatWorkspaceBrowser({
     void sendPageInput(page, { type: "text", text });
   };
 
+  const overlayCursor = newestBrowserPointer(streamedCursor, displayedPreview?.cursor ?? null);
   const cursorStyle = (() => {
-    const cursor = displayedPreview?.cursor;
+    const cursor = overlayCursor;
     const viewport = displayedPreview?.viewport;
     if (!cursor?.visible || cursor.source !== "agent" || !viewport || !previewSurfaceSize) {
       return null;
@@ -1137,13 +1148,17 @@ export function ChatWorkspaceBrowser({
           inputSenderRef={streamInputRef}
           onConnectionChange={(connected) => {
             streamConnectedRef.current = connected;
-            if (!connected) setPageCursor("default");
+            if (!connected) {
+              setPageCursor("default");
+              setStreamedCursor(null);
+            }
             onConnectionChange?.(connected);
             if (!connected && page) schedulePreviewRefresh(page, true);
           }}
           onFramePresented={setStreamFrameVisible}
           onStreamError={setError}
           onPageCursor={setPageCursor}
+          onAgentPointer={handleAgentPointer}
         />
         {!displayedPreview?.screenshot && !streamFrameVisible ? (
           <div className="flex h-full items-center justify-center p-8 text-center">
@@ -1159,14 +1174,14 @@ export function ChatWorkspaceBrowser({
         ) : null}
         {cursorStyle ? (
           <div
-            className="pointer-events-none absolute left-0 top-0 z-20 transition-transform duration-75 ease-out motion-reduce:transition-none"
+            className="pointer-events-none absolute left-0 top-0 z-20 transition-transform duration-150 ease-out will-change-transform motion-reduce:transition-none"
             style={cursorStyle}
             data-testid="browser-agent-cursor"
           >
             <span className="absolute -inset-2 rounded-full bg-blue-400/20 blur-md" />
-            {displayedPreview.cursor?.action === "click" ? (
+            {overlayCursor?.action === "click" ? (
               <span
-                key={displayedPreview.cursor.updatedAt}
+                key={overlayCursor.updatedAt}
                 className="browser-agent-click-pulse absolute -left-2 -top-2 h-5 w-5 rounded-full border border-blue-300/80"
                 data-testid="browser-agent-click"
               />
