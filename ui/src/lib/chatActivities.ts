@@ -20,6 +20,7 @@ export interface LiveActivityItem {
   toolCallId?: string;
   sandboxProvider?: string;
   fullText?: string;
+  detailCallId?: string;
   imageSource?: string;
   imageAlt?: string;
 }
@@ -30,6 +31,7 @@ export interface ToolCallLike {
   arguments?: Record<string, unknown>;
   args?: Record<string, unknown>;
   result?: unknown;
+  error?: string;
   status?: "pending" | "executing" | "completed" | "failed" | "success" | "error" | "blocked";
   started_at?: number | string;
   timeline_index?: number;
@@ -450,6 +452,7 @@ export function enrichActivitiesWithToolCallDetails(
     if (!call) return activity;
     usedCalls.add(call);
     const args = call.arguments || call.args || {};
+    const callResult = call.result ?? call.error;
     const structuredText = formatStructuredToolActivityDetail(
       call.name,
       args,
@@ -457,7 +460,7 @@ export function enrichActivitiesWithToolCallDetails(
       call.result
     );
     const text = structuredText || activity.text;
-    const fullText = formatExpandedToolActivityDetail(call.name, args, activity.phase, call.result);
+    const fullText = formatExpandedToolActivityDetail(call.name, args, activity.phase, callResult);
     const withImage = applyImageViewedMetadata(
       activity,
       call,
@@ -469,7 +472,8 @@ export function enrichActivitiesWithToolCallDetails(
         return { ...withImage, text: text === activity.text ? withImage.text : text };
       return text === activity.text ? activity : { ...activity, text };
     }
-    return { ...withImage, text, fullText };
+    const detailCallId = call.id?.trim();
+    return { ...withImage, text, fullText, ...(detailCallId ? { detailCallId } : {}) };
   });
 }
 

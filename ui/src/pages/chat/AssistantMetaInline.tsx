@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, FileText } from "lucide-react";
-import { type JSX, useState } from "react";
+import { type JSX, useMemo, useState } from "react";
 import {
   finalizeCompletedActivities,
   type LiveActivityItem,
@@ -23,6 +23,7 @@ import {
   summarizeMessageFileChanges,
 } from "./chatModel";
 import { FileChangesCard } from "./FileChangesCard";
+import { type ToolDetailSource, ToolDetailSourceContext } from "./toolDetailSource";
 
 interface ArtifactSummaryCardProps {
   artifacts: ArtifactSummaryView[];
@@ -95,6 +96,11 @@ export function AssistantMetaInline({
   workspaceDir,
 }: AssistantMetaInlineProps): JSX.Element | null {
   const { t } = useI18n();
+  const messageId = message.message_id?.trim();
+  const toolDetailSource = useMemo<ToolDetailSource | null>(
+    () => (sessionId && messageId ? { sessionId, messageId } : null),
+    [sessionId, messageId]
+  );
   const isWorkSection = section === "work";
   const orderedToolCalls = getToolCallsInTimelineOrder(message.tool_calls);
   const fileChangeSummary = summarizeMessageFileChanges(orderedToolCalls);
@@ -152,15 +158,17 @@ export function AssistantMetaInline({
   return (
     <div className={`space-y-2 ${isWorkSection ? "mb-3" : "mt-3"}`}>
       {isWorkSection && workActivitiesWithSandbox.length > 0 && (
-        <CompletedActivityTimeline
-          activities={workActivitiesWithSandbox}
-          label={t("chat.workedFor", {
-            duration:
-              workedDurationMs !== undefined
-                ? formatWorkedDuration(workedDurationMs)
-                : "0h 00m 00s",
-          })}
-        />
+        <ToolDetailSourceContext.Provider value={toolDetailSource}>
+          <CompletedActivityTimeline
+            activities={workActivitiesWithSandbox}
+            label={t("chat.workedFor", {
+              duration:
+                workedDurationMs !== undefined
+                  ? formatWorkedDuration(workedDurationMs)
+                  : "0h 00m 00s",
+            })}
+          />
+        </ToolDetailSourceContext.Provider>
       )}
       {!isWorkSection && fileChangeSummary && (
         <FileChangesCard summary={fileChangeSummary} workspaceDir={workspaceDir} />

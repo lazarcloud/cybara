@@ -1408,6 +1408,23 @@ export const chatApi = {
       `/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}`,
       { signal }
     ),
+  getSessionToolCall: (
+    sessionId: string,
+    messageId: string,
+    toolCallId: string,
+    signal?: AbortSignal
+  ) =>
+    fetchApi<{
+      id: string;
+      name: string;
+      status: "pending" | "executing" | "completed" | "failed";
+      args: Record<string, unknown>;
+      result?: unknown;
+      error?: string;
+    }>(
+      `/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
+      { signal }
+    ),
   getSessionPlan: (id: string) =>
     fetchApi<{ sessionId: string; plan: SessionPlanSnapshot | null }>("/sessions/" + id + "/plan"),
   getSessionGoal: (sessionId: string) =>

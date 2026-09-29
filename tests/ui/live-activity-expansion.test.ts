@@ -14,7 +14,7 @@ describe("live activity expansion", () => {
   test("the server formats the same expanded detail finished messages use, capped", () => {
     const detail = liveToolFullDetail("exec", { command: longCommand }, "start");
     expect(detail).toContain("sleep 45");
-    const huge = liveToolFullDetail("exec", { command: "y".repeat(20_000) }, "start");
+    const huge = liveToolFullDetail("exec", { command: "y".repeat(60_000) }, "start");
     expect(huge?.length).toBeLessThanOrEqual(LIVE_TOOL_DETAIL_MAX_CHARS + 1);
     expect(liveToolFullDetail("exec", {}, "start")).toBeUndefined();
   });

@@ -1696,21 +1696,27 @@ async function handleChatTurn(
       abortSignal: turnAbortController.signal,
     }).catch(() => undefined);
   }
-  await logSessionMessage(session.id, "assistant", assistantMessage.content, {
-    agentId: agent?.id,
-    createdAt: assistantMessage.timestamp,
-    metadata: {
-      source: "chat_api",
-      ...(modelMetadata ?? {}),
-      thinking: finalThinking,
-      tool_calls: allToolCalls,
-      process_activities: assistantMessage.process_activities,
-      agent_transfers: assistantMessage.agent_transfers,
-      run_id: assistantMessage.run_id,
-      worked_duration_ms: assistantMessage.worked_duration_ms,
-      interrupted: assistantMessage.interrupted,
-    },
-  });
+  const loggedAssistantMessageId = await logSessionMessage(
+    session.id,
+    "assistant",
+    assistantMessage.content,
+    {
+      agentId: agent?.id,
+      createdAt: assistantMessage.timestamp,
+      metadata: {
+        source: "chat_api",
+        ...(modelMetadata ?? {}),
+        thinking: finalThinking,
+        tool_calls: allToolCalls,
+        process_activities: assistantMessage.process_activities,
+        agent_transfers: assistantMessage.agent_transfers,
+        run_id: assistantMessage.run_id,
+        worked_duration_ms: assistantMessage.worked_duration_ms,
+        interrupted: assistantMessage.interrupted,
+      },
+    }
+  );
+  if (loggedAssistantMessageId) assistantMessage.message_id = loggedAssistantMessageId;
   persistActiveSessionContext(session);
 
   session.persisted = await persistChatSessionSnapshot(session, assistantMessage);

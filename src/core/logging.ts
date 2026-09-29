@@ -87,7 +87,7 @@ export async function logSessionMessage(
     metadata?: Record<string, unknown>;
     createdAt?: string;
   }
-) {
+): Promise<string | undefined> {
   const safeMetadata = redactLogMetadata(options?.metadata);
   const message = {
     id: randomUUID(),
@@ -110,8 +110,10 @@ export async function logSessionMessage(
       type: "message",
       payload: message,
     });
+    return message.id;
   } catch (error) {
     console.error("[Logger] Failed to log session message:", error);
+    return undefined;
   }
 }
 
