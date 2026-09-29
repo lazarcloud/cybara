@@ -138,6 +138,18 @@ describe("decision batch validation", () => {
     expect(result.ok).toBe(true);
   });
 
+  test("an array of questions is rejected with a self describing message", () => {
+    const result = validateDecisionBatch({
+      state: "some evidence",
+      questions: [{ type: "noul", instructions: "Is it urgent?" }],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain("mapping question ids");
+    expect(result.error).toContain("instructions");
+    expect(result.error).toContain("array of questions is not accepted");
+  });
+
   test("accepts structured state", () => {
     const result = validateDecisionBatch({
       state: [{ role: "user", content: "hi" }],

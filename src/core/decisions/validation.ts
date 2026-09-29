@@ -83,7 +83,13 @@ export function validateDecisionBatch(value: unknown): DecisionValidationResult 
   }
 
   const questions = value.questions;
-  if (!isRecord(questions)) return { ok: false, error: "questions must be an object" };
+  if (!isRecord(questions)) {
+    return {
+      ok: false,
+      error:
+        'questions must be an object mapping question ids to question objects, for example {"q1":{"type":"noul","instructions":"does this compile"}}. An array of questions is not accepted.',
+    };
+  }
   const entries = Object.entries(questions);
   if (entries.length === 0) return { ok: false, error: "at least one question is required" };
   if (entries.length > MAX_DECISION_QUESTIONS) {
