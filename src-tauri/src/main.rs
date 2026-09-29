@@ -18,6 +18,24 @@ mod tray;
 const CYBARA_DEFAULT_PORT: u16 = 4269;
 const MAX_NATIVE_RECORDING_BYTES: u64 = 64 * 1024 * 1024;
 
+/// Compile-time build flavor. `local` ships only the bundled gateway sidecar,
+/// `remote` ships only the remote-gateway client, and `mixed` supports both.
+/// Set `CYBARA_DESKTOP_VARIANT` at build time; defaults to `mixed`.
+const fn desktop_variant() -> &'static str {
+    match option_env!("CYBARA_DESKTOP_VARIANT") {
+        Some(value) => value,
+        None => "mixed",
+    }
+}
+const DESKTOP_VARIANT: &str = desktop_variant();
+fn variant_supports_sidecar() -> bool {
+    matches!(DESKTOP_VARIANT, "local" | "mixed")
+}
+fn variant_supports_remote() -> bool {
+    matches!(DESKTOP_VARIANT, "remote" | "mixed")
+}
+const REMOTE_GATEWAY_CONFIG_FILE: &str = "remote-gateway.json";
+
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GatewayStartupStatus {
@@ -25,6 +43,11 @@ struct GatewayStartupStatus {
     message: Option<String>,
     ownership: String,
     can_switch_to_local: bool,
+    needs_remote_config: bool,
+    remote_url: Option<String>,
+    variant: String,
+    supports_sidecar: bool,
+    supports_remote: bool,
 }
 
 impl GatewayStartupStatus {
@@ -47,6 +70,32 @@ impl GatewayStartupStatus {
         Self::with_phase("failed", Some(message.into()), ownership)
     }
 
+    /// The remote-only build has no gateway yet: ask the operator for a server URL.
+    fn needs_remote_config() -> Self {
+        let mut status = Self::with_phase(
+            "failed",
+            Some(
+                "No Cybara server is configured. Enter the URL of your Cybara server to connect."
+                    .into(),
+            ),
+            gateway_ownership::GatewayOwnership::RemoteHosted,
+        );
+        status.needs_remote_config = true;
+        status
+    }
+
+    /// The window renders a user-configured remote gateway directly.
+    fn remote_ready(url: &str) -> Self {
+        let mut status = Self::with_phase(
+            "ready",
+            None,
+            gateway_ownership::GatewayOwnership::RemoteHosted,
+        );
+        status.remote_url = Some(url.to_string());
+        status.can_switch_to_local = variant_supports_sidecar();
+        status
+    }
+
     fn with_phase(
         phase: &str,
         message: Option<String>,
@@ -57,6 +106,11 @@ impl GatewayStartupStatus {
             message,
             ownership: ownership.as_str().into(),
             can_switch_to_local: ownership == gateway_ownership::GatewayOwnership::AttachedExternal,
+            needs_remote_config: false,
+            remote_url: None,
+            variant: DESKTOP_VARIANT.into(),
+            supports_sidecar: variant_supports_sidecar(),
+            supports_remote: variant_supports_remote(),
         }
     }
 }
@@ -278,6 +332,12 @@ fn restart_gateway_sidecar(app: tauri::AppHandle) -> Result<(), String> {
         gateway_ownership::GatewayOwnership::AttachedExternal => {
             start_external_gateway_reconnect(app);
         }
+        gateway_ownership::GatewayOwnership::RemoteHosted => {
+            let endpoint = gateway_endpoint(&app);
+            if endpoint.is_remote() {
+                navigate_window_to(&app, &endpoint.url);
+            }
+        }
     }
     Ok(())
 }
@@ -310,6 +370,32 @@ fn switch_to_local_gateway(app: tauri::AppHandle) -> Result<(), String> {
     );
     start_sidecar(app, false);
     Ok(())
+}
+
+#[tauri::command]
+fn get_desktop_variant() -> String {
+    DESKTOP_VARIANT.to_string()
+}
+
+#[tauri::command]
+fn set_remote_gateway_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    if !variant_supports_remote() {
+        return Err("This Cybara build does not support remote gateways.".into());
+    }
+    let normalized = normalize_remote_url(&url).ok_or_else(|| {
+        "Enter a valid http(s) URL, for example https://cybara.example.com".to_string()
+    })?;
+    persist_remote_gateway_url(&app, &normalized)?;
+    apply_remote_gateway(&app, &normalized)
+}
+
+#[tauri::command]
+fn use_local_gateway(app: tauri::AppHandle) -> Result<(), String> {
+    if !variant_supports_sidecar() {
+        return Err("This Cybara build has no bundled local gateway.".into());
+    }
+    remove_remote_gateway_url(&app);
+    switch_to_local_gateway(app)
 }
 
 fn reset_gateway_supervision(app: &tauri::AppHandle) -> Result<(), String> {
@@ -435,6 +521,91 @@ fn cybara_api_key() -> Result<Option<String>, String> {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct RemoteGatewayConfig {
+    url: String,
+}
+
+fn remote_gateway_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_local_data_dir()
+        .map(|path| path.join(REMOTE_GATEWAY_CONFIG_FILE))
+        .map_err(|error| error.to_string())
+}
+
+fn normalize_remote_url(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let parsed = tauri::Url::parse(trimmed).ok()?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        _ => return None,
+    }
+    parsed.host_str()?;
+    Some(parsed.as_str().trim_end_matches('/').to_string())
+}
+
+fn remote_gateway_url_from_args(args: &[String]) -> Option<String> {
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        if let Some(value) = arg.strip_prefix("--gateway-url=") {
+            if let Some(url) = normalize_remote_url(value) {
+                return Some(url);
+            }
+        } else if arg == "--gateway-url" {
+            if let Some(value) = iter.next() {
+                if let Some(url) = normalize_remote_url(value) {
+                    return Some(url);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Resolve the configured remote gateway URL. Precedence: `--gateway-url`
+/// argument, then `CYBARA_GATEWAY_URL`, then the on-disk config written by the
+/// in-app prompt. There is deliberately no baked-in default endpoint.
+fn load_remote_gateway_url(app: &tauri::AppHandle) -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(url) = remote_gateway_url_from_args(&args) {
+        return Some(url);
+    }
+    if let Ok(value) = std::env::var("CYBARA_GATEWAY_URL") {
+        if let Some(url) = normalize_remote_url(&value) {
+            return Some(url);
+        }
+    }
+    let path = remote_gateway_config_path(app).ok()?;
+    let text = std::fs::read_to_string(path).ok()?;
+    let config: RemoteGatewayConfig = serde_json::from_str(&text).ok()?;
+    normalize_remote_url(&config.url)
+}
+
+fn persist_remote_gateway_url(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
+    let path = remote_gateway_config_path(app)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let config = RemoteGatewayConfig {
+        url: url.to_string(),
+    };
+    let bytes = serde_json::to_vec_pretty(&config).map_err(|error| error.to_string())?;
+    std::fs::write(&path, bytes).map_err(|error| error.to_string())
+}
+
+fn remove_remote_gateway_url(app: &tauri::AppHandle) {
+    if let Ok(path) = remote_gateway_config_path(app) {
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => log::warn!("Failed to remove remote gateway config: {error}"),
+        }
+    }
+}
+
 fn file_path_from_args(args: &[String]) -> Option<String> {
     for arg in args.iter().skip(1) {
         if arg.starts_with('-') {
@@ -497,6 +668,58 @@ fn set_gateway_intent(
     guard.set_intent(intent);
     set_gateway_endpoint(app, gateway::GatewayEndpoint::loopback(port));
     Ok(())
+}
+
+fn navigate_window_to(app: &tauri::AppHandle, url: &str) {
+    if let Some(window) = app.get_webview_window("main") {
+        if let Ok(parsed) = tauri::Url::parse(url) {
+            let _ = window.navigate(parsed);
+        }
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+/// Switch the desktop into remote-gateway mode. The window navigates to the
+/// remote gateway's own web UI; no local sidecar is started and no loopback
+/// probes are performed.
+fn apply_remote_gateway(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
+    let endpoint = gateway::GatewayEndpoint::from_url(url)
+        .ok_or_else(|| format!("Invalid Cybara server URL: {url}"))?;
+    let state = app
+        .try_state::<GatewayOwnershipState>()
+        .ok_or_else(|| "Gateway ownership state is unavailable".to_string())?;
+    {
+        let mut guard = state
+            .0
+            .lock()
+            .map_err(|_| "Gateway ownership state is unavailable".to_string())?;
+        guard.set_intent(gateway_ownership::GatewayIntent::remote(
+            endpoint.url.clone(),
+            endpoint.port(),
+        ));
+    }
+    set_gateway_endpoint(app, endpoint.clone());
+    reset_gateway_supervision(app)?;
+    stop_sidecar(app);
+    set_gateway_startup_status(app, GatewayStartupStatus::remote_ready(&endpoint.url));
+    navigate_window_to(app, &endpoint.url);
+    Ok(())
+}
+
+/// If a persisted intent claims remote ownership but this launch is falling back
+/// to a local build, clear it so the managed sidecar path can run.
+fn reset_remote_intent_to_local(app: &tauri::AppHandle) {
+    if gateway_intent(app).ownership != gateway_ownership::GatewayOwnership::RemoteHosted {
+        return;
+    }
+    if let Err(error) = set_gateway_intent(
+        app,
+        gateway_ownership::GatewayIntent::managed_local(CYBARA_DEFAULT_PORT),
+    ) {
+        log::warn!("Failed to reset stale remote gateway intent: {error}");
+    }
 }
 
 #[tauri::command]
@@ -1012,7 +1235,11 @@ fn wait_for_existing_gateway(
 }
 
 fn start_sidecar(app: tauri::AppHandle, allow_external_attach: bool) {
-    if gateway_intent(&app).ownership != gateway_ownership::GatewayOwnership::ManagedLocal {
+    let ownership = gateway_intent(&app).ownership;
+    if ownership == gateway_ownership::GatewayOwnership::RemoteHosted {
+        return;
+    }
+    if ownership != gateway_ownership::GatewayOwnership::ManagedLocal {
         start_external_gateway_reconnect(app);
         return;
     }
@@ -1284,6 +1511,9 @@ fn start_gateway_watchdog(app: tauri::AppHandle) {
             if !ready {
                 continue;
             }
+            if gateway_intent(&app).ownership == gateway_ownership::GatewayOwnership::RemoteHosted {
+                continue;
+            }
             let endpoint = gateway_endpoint(&app);
             let liveness = if gateway_intent(&app).ownership
                 == gateway_ownership::GatewayOwnership::AttachedExternal
@@ -1363,6 +1593,9 @@ fn main() {
             get_gateway_startup_status,
             restart_gateway_sidecar,
             switch_to_local_gateway,
+            get_desktop_variant,
+            set_remote_gateway_url,
+            use_local_gateway,
             start_native_recording,
             stop_native_recording,
             write_theme_file,
@@ -1420,7 +1653,35 @@ fn main() {
                 set_pending_open(app.handle(), path);
             }
 
+            // The watchdog is always started; it skips remote-hosted gateways and
+            // supervises the managed sidecar once ownership flips to local.
             start_gateway_watchdog(app.handle().clone());
+
+            // Remote gateway mode takes precedence when a URL is configured.
+            if variant_supports_remote()
+                && let Some(url) = load_remote_gateway_url(app.handle())
+            {
+                if let Err(error) = apply_remote_gateway(app.handle(), &url) {
+                    set_gateway_startup_status(
+                        app.handle(),
+                        GatewayStartupStatus::failed(
+                            format!("The configured Cybara server URL is invalid: {error}"),
+                            gateway_ownership::GatewayOwnership::RemoteHosted,
+                        ),
+                    );
+                }
+                return Ok(());
+            }
+
+            // A remote-only build with no configured URL asks the operator.
+            if !variant_supports_sidecar() {
+                reset_remote_intent_to_local(app.handle());
+                set_gateway_startup_status(app.handle(), GatewayStartupStatus::needs_remote_config());
+                return Ok(());
+            }
+
+            // Managed local mode (or external attach during first discovery).
+            reset_remote_intent_to_local(app.handle());
             if intent_error.is_none() {
                 start_gateway_for_intent(app.handle().clone(), allow_external_attach);
             }

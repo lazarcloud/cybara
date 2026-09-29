@@ -6,8 +6,13 @@ export type GatewayStartupPhase = "starting" | "ready" | "failed";
 export interface GatewayStartupStatus {
   phase: GatewayStartupPhase;
   message: string | null;
-  ownership: "managedLocal" | "attachedExternal";
+  ownership: "managedLocal" | "attachedExternal" | "remoteHosted";
   canSwitchToLocal: boolean;
+  needsRemoteConfig: boolean;
+  remoteUrl: string | null;
+  variant: string;
+  supportsSidecar: boolean;
+  supportsRemote: boolean;
 }
 
 export function gatewayStartupPollInterval(desktopRuntime: boolean): number | false {
@@ -44,5 +49,25 @@ export async function restartDesktopGateway(): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+export async function setRemoteGatewayUrl(url: string): Promise<string | null> {
+  if (!isTauriDesktopRuntime()) return "Desktop gateway controls are unavailable.";
+  try {
+    await invoke("set_remote_gateway_url", { url });
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+export async function useLocalGateway(): Promise<string | null> {
+  if (!isTauriDesktopRuntime()) return "Desktop gateway controls are unavailable.";
+  try {
+    await invoke("use_local_gateway");
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
   }
 }

@@ -515,3 +515,12 @@ The `main` branch is reserved for releases. See
 ## License
 
 MIT — [Carsen Klock](https://github.com/metaspartan)
+
+## This fork
+
+This is a fork of [metaspartan/cybara](https://github.com/metaspartan/cybara) that
+adds build-time desktop variants, including a **remote-only** client that connects
+to an existing Cybara server instead of always starting a bundled local gateway.
+See [docs/desktop-fork.md](docs/desktop-fork.md) for the variants, remote-server
+configuration, and build instructions. The gateway, CLI and web UI are unmodified
+upstream code.

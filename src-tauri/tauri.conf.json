@@ -37,15 +37,6 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
-    "resources": {
-      "bin/node_modules": "node_modules",
-      "bin/runtime": "runtime",
-      "bin/cua-driver": "cua-driver",
-      "bin/plugins": "plugins",
-      "bin/docker/sandbox-browser": "docker/sandbox-browser",
-      "bin/ui/dist": "ui/dist",
-      "bin/secp256k1.wasm": "secp256k1.wasm"
-    },
     "targets": [
       "dmg",
       "app",
@@ -54,9 +45,6 @@
       "deb",
       "rpm",
       "appimage"
-    ],
-    "externalBin": [
-      "bin/cybara"
     ],
     "fileAssociations": [
       {
