@@ -97,10 +97,7 @@ describe("timeline tool call payload compaction", () => {
 });
 
 describe("thinking trace compaction", () => {
-  function withTail(
-    head: Record<string, unknown>[],
-    tailCount: number
-  ): Record<string, unknown>[] {
+  function withTail(head: Record<string, unknown>[], tailCount: number): Record<string, unknown>[] {
     const messages = [...head];
     for (let index = 0; index < tailCount; index += 1) {
       messages.push({ role: "system", content: `note ${index}` });

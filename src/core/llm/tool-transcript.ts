@@ -190,7 +190,8 @@ function collapseOversizedToolCallPayloads(
     const message = messages[index];
     if (message.role !== "assistant") continue;
     if (toolCallPayloadChars(message) <= maxPayloadChars) continue;
-    if (collapseToolCallPayload(message) || collapseTimelineToolCallResults(message)) collapsed += 1;
+    if (collapseToolCallPayload(message) || collapseTimelineToolCallResults(message))
+      collapsed += 1;
   }
   return collapsed;
 }

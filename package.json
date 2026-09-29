@@ -152,7 +152,7 @@
     "form-data": "4.0.6",
     "@humanfs/node": "0.16.8",
     "ip-address": "10.5.1",
-    "js-yaml": "5.2.2",
+    "js-yaml": "5.4.1",
     "lodash": "4.18.1",
     "mermaid": "11.16.1",
     "minimatch": "5.1.8",
