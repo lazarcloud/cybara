@@ -24,4 +24,17 @@ describe("React Doctor runner", () => {
 
     expect(args.slice(-2)).toEqual(["--base", "origin/main"]);
   });
+
+  test("honors an explicit base that exists in the repository", () => {
+    const head = resolveReactDoctorBase({});
+
+    expect(resolveReactDoctorBase({ CI: "true", REACT_DOCTOR_BASE: head })).toBe(head);
+  });
+
+  test("falls back to the previous commit when the explicit base no longer exists", () => {
+    const missingBase = "0123456789abcdef0123456789abcdef01234567";
+    const fallback = resolveReactDoctorBase({ CI: "true" });
+
+    expect(resolveReactDoctorBase({ CI: "true", REACT_DOCTOR_BASE: missingBase })).toBe(fallback);
+  });
 });
