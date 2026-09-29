@@ -16,7 +16,7 @@ import {
   Search,
   SquareTerminal,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui";
 import type { Subagent } from "@/hooks/useApi";
 import {
@@ -37,7 +37,14 @@ import {
 } from "./chatModel";
 import { LiveStatusIndicator, LiveStatusOrb, LiveStatusText } from "./LiveStatusIndicator";
 import { SubagentIcon } from "./SubagentIcon";
+import { ToolActivityBody } from "./ToolActivityBody";
+import {
+  loadToolCallDetail,
+  peekToolCallDetail,
+  ToolDetailSourceContext,
+} from "./toolDetailSource";
 import { isDelegatedWaitStatusLabel } from "../../../../shared/chat-status";
+import { splitToolActivityDetail } from "../../../../shared/tool-activity-detail";
 
 const GROUP_ICONS: Record<ActivityGroupKind, LucideIcon> = {
   read: FileText,
@@ -124,6 +131,29 @@ export function activityRowKey(activity: LiveActivityItem): string {
   return toolCallId ? `call:${toolCallId}` : activity.id;
 }
 
+function useFullToolDetail(activity: LiveActivityItem, expanded: boolean): string | undefined {
+  const source = useContext(ToolDetailSourceContext);
+  const callId = activity.detailCallId;
+  const phase = activity.phase;
+  const eligible = Boolean(source && callId && phase !== "start");
+  const [loaded, setLoaded] = useState<string | null | undefined>(() =>
+    source && callId && phase !== "start" ? peekToolCallDetail(source, callId, phase) : undefined
+  );
+
+  useEffect(() => {
+    if (!expanded || !eligible || !source || !callId || loaded !== undefined) return;
+    let active = true;
+    void loadToolCallDetail(source, callId, phase).then((text) => {
+      if (active) setLoaded(text);
+    });
+    return () => {
+      active = false;
+    };
+  }, [expanded, eligible, source, callId, phase, loaded]);
+
+  return loaded ?? undefined;
+}
+
 function ActivityRow({
   activity,
   expanded,
@@ -133,6 +163,13 @@ function ActivityRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const fullDetail = useFullToolDetail(activity, expanded);
+  const fullText = activity.fullText?.trim();
+  const detailText = expanded ? (fullDetail ?? fullText) : undefined;
+  const detailParts = useMemo(
+    () => (detailText ? splitToolActivityDetail(detailText) : null),
+    [detailText]
+  );
   if (isRawToolCallThought(activity)) return null;
   if (activity.toolName === "__thought") {
     return (
@@ -141,10 +178,9 @@ function ActivityRow({
       </div>
     );
   }
-  const fullText = activity.fullText?.trim();
   const hasImage = Boolean(activity.imageSource);
   const expandable = Boolean(fullText && fullText !== activity.text.trim()) || hasImage;
-  const content = expanded && fullText ? fullText : activity.text;
+  const content = detailParts?.head || activity.text;
   const textContent = (
     <>
       {activity.phase === "start" ? (
@@ -196,9 +232,7 @@ function ActivityRow({
             onClick={onToggle}
             className="min-w-0 flex-1 cursor-pointer text-left text-inherit"
             aria-expanded={expanded}
-            title={
-              expanded ? "Collapse" : hasImage ? "Show the viewed image" : "Show full tool call"
-            }
+            title={expanded ? "Collapse" : hasImage ? "Show the viewed image" : "Show tool output"}
           >
             <span className="flex min-w-0 items-start gap-2">{textContent}</span>
           </button>
@@ -212,6 +246,11 @@ function ActivityRow({
             source={activity.imageSource}
             alt={activity.imageAlt || "Viewed image"}
           />
+        </div>
+      ) : null}
+      {expanded && (detailParts?.output || detailParts?.diff) ? (
+        <div className="ml-5 mt-1.5">
+          <ToolActivityBody output={detailParts.output} diff={detailParts.diff} />
         </div>
       ) : null}
     </div>

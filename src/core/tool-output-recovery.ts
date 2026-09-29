@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "fs";
-import { join } from "path";
+import { join, resolve, sep } from "path";
 import { cybaraDir } from "./paths";
 
 export const TOOL_OUTPUT_RECOVERY_DIR = join(cybaraDir, "tool-results");
@@ -88,6 +88,28 @@ export function persistToolOutputForRecovery(input: {
       chmodSync(path, 0o600);
     } catch {}
     return path;
+  } catch {
+    return undefined;
+  }
+}
+
+export const ARCHIVED_OUTPUT_LINE_PREFIX = "Full output archived at: ";
+
+export async function readArchivedToolOutput(
+  receiptText: string,
+  maxChars: number
+): Promise<string | undefined> {
+  const archiveLine = receiptText.split("\n")[1];
+  if (!archiveLine?.startsWith(ARCHIVED_OUTPUT_LINE_PREFIX)) return undefined;
+  const archivePath = resolve(archiveLine.slice(ARCHIVED_OUTPUT_LINE_PREFIX.length).trim());
+  const root = resolve(TOOL_OUTPUT_RECOVERY_DIR);
+  if (!archivePath.startsWith(`${root}${sep}`)) return undefined;
+  try {
+    if (!statSync(archivePath).isFile()) return undefined;
+    const content = await Bun.file(archivePath)
+      .slice(0, maxChars * 4)
+      .text();
+    return content.length > maxChars ? content.slice(0, maxChars) : content;
   } catch {
     return undefined;
   }

@@ -31,12 +31,21 @@ export function reactDoctorArgs(
   return args;
 }
 
+function revisionExists(revision: string, workingDirectory: string): boolean {
+  const result = Bun.spawnSync(["git", "cat-file", "-e", `${revision}^{commit}`], {
+    cwd: workingDirectory,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return result.exitCode === 0;
+}
+
 export function resolveReactDoctorBase(
   environment: Readonly<Record<string, string | undefined>>,
   workingDirectory: string = import.meta.dir + "/.."
 ): string {
   const configuredBase = environment.REACT_DOCTOR_BASE?.trim();
-  if (configuredBase) {
+  if (configuredBase && revisionExists(configuredBase, workingDirectory)) {
     return configuredBase;
   }
   const revision = environment.CI === "true" ? "HEAD^" : "HEAD";

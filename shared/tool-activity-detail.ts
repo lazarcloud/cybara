@@ -213,7 +213,7 @@ function planActivityDetail(
   return `${summary}\n${lines.join("\n")}`;
 }
 
-export function formatExpandedToolActivityDetail(
+function expandedToolActivityHead(
   toolName: string,
   args: Record<string, unknown>,
   phase: ToolActivityPhase,
@@ -230,4 +230,164 @@ export function formatExpandedToolActivityDetail(
     return imageActivityDetail(args, phase, result);
   }
   return formatStructuredToolActivityDetail(toolName, args, phase, result);
+}
+
+export interface ToolDetailLimits {
+  outputChars: number;
+  diffChars: number;
+}
+
+export const PERSISTED_TOOL_DETAIL_LIMITS: ToolDetailLimits = {
+  outputChars: 30_000,
+  diffChars: 200_000,
+};
+
+export const LIVE_TOOL_DETAIL_LIMITS: ToolDetailLimits = {
+  outputChars: 4_000,
+  diffChars: 16_000,
+};
+
+export const TOOL_OUTPUT_HEADING = "Output:";
+export const TOOL_DIFF_HEADING = "Diff:";
+
+const FILE_CHANGE_TOOLS = new Set(["write", "edit", "apply_patch"]);
+const COMMAND_TOOLS = new Set(["exec", "process", "git"]);
+const HEAD_ONLY_TOOLS = new Set(["image", "skill_load", "todo", "update_plan"]);
+const OUTPUT_TEXT_KEYS = ["output", "stdout", "content", "text", "message", "result", "error"];
+const OMITTED_RESULT_KEYS = new Set(["system_reminder", "snapshot"]);
+const MAX_SERIALIZED_STRING_CHARS = 4_000;
+const MAX_SERIALIZED_ARRAY_ITEMS = 50;
+const MAX_SERIALIZED_DEPTH = 6;
+
+function clipMiddle(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const headChars = Math.floor(maxChars * 0.6);
+  const tailChars = maxChars - headChars;
+  const omitted = text.length - maxChars;
+  return `${text.slice(0, headChars)}\n… ${omitted} characters omitted …\n${text.slice(text.length - tailChars)}`;
+}
+
+function clipAtLine(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const cut = text.lastIndexOf("\n", maxChars);
+  const kept = text.slice(0, cut > 0 ? cut : maxChars);
+  return `${kept}\n… ${text.length - kept.length} more characters omitted`;
+}
+
+function compactForSerialization(value: unknown, depth: number): unknown {
+  if (typeof value === "string") {
+    if (value.startsWith("data:")) return `[data URL omitted, ${value.length} characters]`;
+    return value.length > MAX_SERIALIZED_STRING_CHARS
+      ? `${value.slice(0, MAX_SERIALIZED_STRING_CHARS)}… [${value.length - MAX_SERIALIZED_STRING_CHARS} more characters]`
+      : value;
+  }
+  if (value === null || typeof value !== "object") return value;
+  if (depth >= MAX_SERIALIZED_DEPTH) return "[nested value omitted]";
+  if (Array.isArray(value)) {
+    const items = value
+      .slice(0, MAX_SERIALIZED_ARRAY_ITEMS)
+      .map((item) => compactForSerialization(item, depth + 1));
+    return value.length > MAX_SERIALIZED_ARRAY_ITEMS
+      ? [...items, `… ${value.length - MAX_SERIALIZED_ARRAY_ITEMS} more items`]
+      : items;
+  }
+  const compacted: Record<string, unknown> = {};
+  for (const [entryKey, entry] of Object.entries(value)) {
+    if (OMITTED_RESULT_KEYS.has(entryKey)) continue;
+    compacted[entryKey] = compactForSerialization(entry, depth + 1);
+  }
+  return compacted;
+}
+
+function exitCodeSuffix(result: Record<string, unknown>): string {
+  const exitCode = result.exitCode;
+  return typeof exitCode === "number" && exitCode !== 0 ? `\n[exit code ${exitCode}]` : "";
+}
+
+function toolResultOutputText(key: string, result: unknown): string | undefined {
+  if (result === undefined || result === null) return undefined;
+  if (typeof result === "string") return result.trim() ? result : undefined;
+  if (!isRecord(result)) {
+    return typeof result === "number" || typeof result === "boolean" ? String(result) : undefined;
+  }
+  if (COMMAND_TOOLS.has(key) && typeof result.output === "string") {
+    const text = `${result.output}${exitCodeSuffix(result)}`;
+    return text.trim() ? text : undefined;
+  }
+  for (const textKey of OUTPUT_TEXT_KEYS) {
+    const value = result[textKey];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  if (Object.keys(result).length === 0) return undefined;
+  try {
+    return JSON.stringify(compactForSerialization(result, 0), null, 2);
+  } catch {
+    return undefined;
+  }
+}
+
+function fileChangeDiffText(result: unknown): string | undefined {
+  if (!isRecord(result)) return undefined;
+  const diffs: string[] = [];
+  if (Array.isArray(result.changes)) {
+    for (const change of result.changes) {
+      if (isRecord(change) && typeof change.diff === "string" && change.diff.trim()) {
+        diffs.push(change.diff);
+      }
+    }
+  }
+  if (diffs.length === 0 && isRecord(result.change)) {
+    const diff = result.change.diff;
+    if (typeof diff === "string" && diff.trim()) diffs.push(diff);
+  }
+  return diffs.length > 0 ? diffs.join("\n") : undefined;
+}
+
+function toolActivityBody(
+  key: string,
+  result: unknown,
+  limits: ToolDetailLimits,
+): string | undefined {
+  if (HEAD_ONLY_TOOLS.has(key)) return undefined;
+  if (FILE_CHANGE_TOOLS.has(key)) {
+    const diff = fileChangeDiffText(result);
+    if (diff) return `${TOOL_DIFF_HEADING}\n${clipAtLine(diff, limits.diffChars)}`;
+  }
+  const output = toolResultOutputText(key, result);
+  if (!output) return undefined;
+  return `${TOOL_OUTPUT_HEADING}\n${clipMiddle(output, limits.outputChars)}`;
+}
+
+export function formatExpandedToolActivityDetail(
+  toolName: string,
+  args: Record<string, unknown>,
+  phase: ToolActivityPhase,
+  result?: unknown,
+  limits: ToolDetailLimits = PERSISTED_TOOL_DETAIL_LIMITS,
+): string | undefined {
+  const head = expandedToolActivityHead(toolName, args, phase, result);
+  const body =
+    phase === "start"
+      ? undefined
+      : toolActivityBody(toolName.trim().toLowerCase(), result, limits);
+  if (!body) return head;
+  return head ? `${head}\n\n${body}` : body;
+}
+
+export interface ToolActivityDetailParts {
+  head: string;
+  output?: string;
+  diff?: string;
+}
+
+const DETAIL_BODY_PATTERN = new RegExp(
+  `(?:^|\\n\\n)(${TOOL_OUTPUT_HEADING}|${TOOL_DIFF_HEADING})\\n`,
+);
+
+export function splitToolActivityDetail(text: string): ToolActivityDetailParts {
+  const match = DETAIL_BODY_PATTERN.exec(text);
+  if (!match) return { head: text };
+  const head = text.slice(0, match.index);
+  const body = text.slice(match.index + match[0].length);
+  return match[1] === TOOL_DIFF_HEADING ? { head, diff: body } : { head, output: body };
 }

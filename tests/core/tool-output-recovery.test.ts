@@ -2,8 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync } from "fs";
 import { basename, dirname } from "path";
 import {
+  ARCHIVED_OUTPUT_LINE_PREFIX,
   formatRecoverableToolOutputPreview,
   persistToolOutputForRecovery,
+  readArchivedToolOutput,
+  TOOL_OUTPUT_RECOVERY_DIR,
 } from "../../src/core/tool-output-recovery";
 import { assertReadablePath } from "../../src/core/tools/path-policy";
 
@@ -78,5 +81,37 @@ describe("tool output recovery", () => {
     expect(JSON.parse(persisted)).toEqual(payload);
 
     rmSync(path!, { force: true });
+  });
+
+  test("reads back an archived output referenced by a receipt", async () => {
+    const path = persistToolOutputForRecovery({
+      content: "line one\nline two",
+      sessionId: "archive-read",
+      toolName: "exec",
+    });
+    const receipt = `[Evidence Receipt] verified\n${ARCHIVED_OUTPUT_LINE_PREFIX}${path}\nSummary: ok`;
+
+    expect(await readArchivedToolOutput(receipt, 1000)).toBe("line one\nline two");
+    expect(await readArchivedToolOutput(receipt, 4)).toBe("line");
+
+    rmSync(path!, { force: true });
+  });
+
+  test("refuses archive references outside the recovery directory", async () => {
+    const outside = `${TOOL_OUTPUT_RECOVERY_DIR}/../platform.db`;
+    const traversal = `[Evidence Receipt] verified\n${ARCHIVED_OUTPUT_LINE_PREFIX}${outside}\nSummary: x`;
+    const absolute = `[Evidence Receipt] verified\n${ARCHIVED_OUTPUT_LINE_PREFIX}/etc/hosts\nSummary: x`;
+    const injectedQuote = `[Evidence Receipt] verified\nFull output preserved in chat transcript.\n${ARCHIVED_OUTPUT_LINE_PREFIX}/etc/hosts`;
+
+    expect(await readArchivedToolOutput(traversal, 1000)).toBeUndefined();
+    expect(await readArchivedToolOutput(absolute, 1000)).toBeUndefined();
+    expect(await readArchivedToolOutput(injectedQuote, 1000)).toBeUndefined();
+    expect(await readArchivedToolOutput("plain output", 1000)).toBeUndefined();
+  });
+
+  test("returns nothing when the archived file is gone", async () => {
+    const missing = `${TOOL_OUTPUT_RECOVERY_DIR}/gone/missing.txt`;
+    const receipt = `[Evidence Receipt] verified\n${ARCHIVED_OUTPUT_LINE_PREFIX}${missing}`;
+    expect(await readArchivedToolOutput(receipt, 1000)).toBeUndefined();
   });
 });

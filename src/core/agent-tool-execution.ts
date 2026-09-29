@@ -250,7 +250,7 @@ async function executeAgentToolInternal(
         durationMs: Date.now() - startedAt,
         sandboxProvider: extractSandboxProviderFromToolResult(finalResult),
         imagePath: viewedImageSnapshot ?? viewedImagePath,
-        fullDetail: liveFullDetail("result", finalResult),
+        fullDetail: liveFullDetail("result", result),
       }
     );
     await emitAgentHook({

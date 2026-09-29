@@ -3,6 +3,14 @@ import { KIMI_CODE_BASE_URL, kimiCodeModels } from "./kimi-code";
 
 const miniMaxPortalModels = [
   {
+    id: "MiniMax-M3.1-Flash-Preview",
+    name: "MiniMax M3.1 Flash Preview",
+    context: 1000000,
+    maxTokens: 131072,
+    reasoning: true,
+    input: ["text", "image"],
+  },
+  {
     id: "MiniMax-M3",
     name: "MiniMax M3",
     context: 1000000,
@@ -439,6 +447,14 @@ export const foundationProviderCatalog = {
         input: ["text", "image"],
       },
       {
+        id: "claude-sonnet-5-5",
+        name: "Claude Sonnet 5.5",
+        context: 1000000,
+        maxTokens: 128000,
+        reasoning: true,
+        input: ["text", "image", "pdf"],
+      },
+      {
         id: "claude-sonnet-5",
         name: "Claude Sonnet 5",
         context: 1000000,
@@ -741,6 +757,14 @@ export const foundationProviderCatalog = {
     api: "anthropic-messages",
     authType: "api_key",
     models: [
+      {
+        id: "MiniMax-M3.1-Flash-Preview",
+        name: "MiniMax M3.1 Flash Preview",
+        context: 1000000,
+        maxTokens: 131072,
+        reasoning: true,
+        input: ["text", "image"],
+      },
       {
         id: "MiniMax-M3",
         name: "MiniMax M3",

@@ -15,7 +15,7 @@ const ANTHROPIC_NATIVE_1M_MODEL =
   /claude-(?:(?:opus|sonnet|fable|mythos)-5|(?:opus|sonnet)-4[-.](?:6|8))(?:-|$)/;
 
 const ANTHROPIC_FORCED_TOOL_CHOICE_UNSUPPORTED =
-  /(?:^|[/.])claude-(?:opus-5-5|fable-5-1|mythos-5-1)(?:-|@|$)/;
+  /(?:^|[/.])claude-(?:opus-5-5|sonnet-5-5|fable-5-1|mythos-5-1)(?:-|@|$)/;
 
 export function supportsAnthropicForcedToolChoice(modelId?: string): boolean {
   return !ANTHROPIC_FORCED_TOOL_CHOICE_UNSUPPORTED.test((modelId ?? "").trim().toLowerCase());

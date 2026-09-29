@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { supportedReasoningEfforts } from "../../shared/reasoning-capabilities";
+import { reasoningMode, supportedReasoningEfforts } from "../../shared/reasoning-capabilities";
 import {
   resolveAnthropicToolChoice,
   supportsAnthropicForcedToolChoice,
@@ -20,6 +20,48 @@ describe("latest Claude and OpenAI models", () => {
       reasoning: true,
     });
     expect(models.map((model) => model.id)).toContain("claude-fable-5-1");
+  });
+
+  test("lists Claude Sonnet 5.5 and Opus 5.5 on every platform that serves them", () => {
+    const sonnet = { context: 1000000, maxTokens: 128000, reasoning: true };
+    expect(
+      providers.anthropic.models.find((model) => model.id === "claude-sonnet-5-5")
+    ).toMatchObject({
+      name: "Claude Sonnet 5.5",
+      ...sonnet,
+    });
+    expect(providers.anthropic_vertex.models.map((model) => model.id)).toEqual(
+      expect.arrayContaining(["claude-opus-5-5", "claude-sonnet-5-5"])
+    );
+    expect(providers.bedrock.models.map((model) => model.id)).toEqual(
+      expect.arrayContaining([
+        "global.anthropic.claude-opus-5-5",
+        "global.anthropic.claude-sonnet-5-5",
+      ])
+    );
+    expect(providers.openrouter.models.map((model) => model.id)).toEqual(
+      expect.arrayContaining(["anthropic/claude-opus-5.5", "anthropic/claude-sonnet-5.5"])
+    );
+  });
+
+  test("lists MiMo V2.6 Pro, Flash, and UltraSpeed with the 1M context window", () => {
+    for (const modelId of ["mimo-v2.6-pro", "mimo-v2.6-flash", "mimo-v2.6-pro-ultraspeed"]) {
+      expect(providers.xiaomi.models.find((model) => model.id === modelId)).toMatchObject({
+        context: 1048576,
+        maxTokens: 131072,
+        reasoning: true,
+        input: ["text", "image"],
+      });
+    }
+  });
+
+  test("lists MiniMax M3.1 Flash Preview with adaptive reasoning on every MiniMax provider", () => {
+    for (const providerId of ["minimax", "minimax-portal", "minimax-portal-cn"] as const) {
+      expect(
+        providers[providerId].models.find((model) => model.id === "MiniMax-M3.1-Flash-Preview")
+      ).toMatchObject({ context: 1000000, reasoning: true, input: ["text", "image"] });
+      expect(reasoningMode(providerId, "MiniMax-M3.1-Flash-Preview")).toBe("adaptive");
+    }
   });
 
   test("lists GPT-6 Sol, Luna, and Astra in the API and Codex catalogs", () => {
@@ -55,6 +97,13 @@ describe("latest Claude and OpenAI models", () => {
     }
     expect(supportedReasoningEfforts("anthropic", "claude-opus-5-5")).toContain("xhigh");
     expect(supportedReasoningEfforts("anthropic", "claude-opus-5-5")).toContain("max");
+    for (const providerId of ["anthropic", "anthropic_vertex", "bedrock"]) {
+      const modelId =
+        providerId === "bedrock" ? "global.anthropic.claude-sonnet-5-5" : "claude-sonnet-5-5";
+      expect(supportedReasoningEfforts(providerId, modelId)).toEqual(
+        expect.arrayContaining(["low", "medium", "high", "xhigh", "max"])
+      );
+    }
   });
 
   test("prices the new models from the published rates", () => {
@@ -64,6 +113,22 @@ describe("latest Claude and OpenAI models", () => {
       cacheReadPerM: 0.2,
       cacheWritePerM: 5,
     });
+    expect(getPricing("anthropic", "claude-sonnet-5-5")).toEqual({
+      inputPerM: 2,
+      outputPerM: 10,
+      cacheReadPerM: 0.2,
+      cacheWritePerM: 2.5,
+    });
+    expect(getPricing("openrouter", "anthropic/claude-opus-5.5")).toMatchObject({
+      inputPerM: 4,
+      outputPerM: 20,
+      cacheReadPerM: 0.2,
+    });
+    expect(getPricing("openrouter", "anthropic/claude-sonnet-5.5")).toMatchObject({
+      inputPerM: 2,
+      outputPerM: 10,
+    });
+    expect(getPricing("openrouter", "anthropic/unknown-model")?.inputPerM).toBe(5);
     expect(getPricing("anthropic", "claude-fable-5-1")?.cacheReadPerM).toBe(0.25);
     expect(getPricing("openai", "gpt-6-sol")).toMatchObject({ inputPerM: 2, outputPerM: 10 });
     expect(getPricing("openai", "gpt-6-luna")).toMatchObject({ inputPerM: 0.1, outputPerM: 0.5 });
@@ -76,9 +141,12 @@ describe("latest Claude and OpenAI models", () => {
     const required = { requireToolUse: true, requiredToolName: "read" };
     for (const modelId of [
       "claude-opus-5-5",
+      "claude-sonnet-5-5",
       "claude-fable-5-1",
       "claude-mythos-5-1",
       "anthropic.claude-opus-5-5",
+      "global.anthropic.claude-sonnet-5-5",
+      "global.anthropic.claude-opus-5-5",
     ]) {
       expect(supportsAnthropicForcedToolChoice(modelId)).toBe(false);
       expect(resolveAnthropicToolChoice(["read", "exec"], required, modelId)).toEqual({

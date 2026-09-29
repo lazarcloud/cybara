@@ -4,7 +4,7 @@ import { config } from "./config";
 import { redactSecretText } from "./redaction";
 import { providerManager } from "./providers";
 import type { ToolContext } from "./tools/types";
-import { persistToolOutputForRecovery } from "./tool-output-recovery";
+import { ARCHIVED_OUTPUT_LINE_PREFIX, persistToolOutputForRecovery } from "./tool-output-recovery";
 
 export const EVIDENCE_REDUCER_MIN_CHARS = 4096;
 export const EVIDENCE_RECEIPT_MARKER = "[Evidence Receipt]";
@@ -181,7 +181,7 @@ function renderReceipt(
   const lines: string[] = [
     `${EVIDENCE_RECEIPT_MARKER} verified: sha256:${receipt.source_sha256} exit_code:${exitCode} source_chars:${sourceChars}`,
     archivedPath
-      ? `Full output archived at: ${archivedPath}`
+      ? `${ARCHIVED_OUTPUT_LINE_PREFIX}${archivedPath}`
       : "Full output preserved in chat transcript.",
     `Summary: ${receipt.summary}`,
   ];

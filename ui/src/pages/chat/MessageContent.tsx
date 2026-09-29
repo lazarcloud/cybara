@@ -144,7 +144,15 @@ function InlineCodeSnippet({
   );
 }
 
-export function DiffCodeBlock({ code, fill = false }: { code: string; fill?: boolean }) {
+export function DiffCodeBlock({
+  code,
+  fill = false,
+  className,
+}: {
+  code: string;
+  fill?: boolean;
+  className?: string;
+}) {
   const lines = code.split(/\r?\n/);
 
   const lineMeta = lines.map((line) => {
@@ -198,7 +206,7 @@ export function DiffCodeBlock({ code, fill = false }: { code: string; fill?: boo
     <div
       className={cn(
         "chat-code-block chat-code-surface flex min-h-0 min-w-0 flex-col overflow-hidden border",
-        fill ? "h-full rounded-none border-0" : "my-3 rounded-xl"
+        fill ? "h-full rounded-none border-0" : cn("rounded-xl", className ?? "my-3")
       )}
     >
       <div className="chat-code-header flex shrink-0 items-center justify-between gap-2 border-b px-3 py-1.5 text-[12px] uppercase tracking-[0.08em]">

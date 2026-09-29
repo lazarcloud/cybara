@@ -701,6 +701,14 @@ export const integrationProviderCatalog = {
         input: ["text", "image"],
       },
       {
+        id: "mimo-v2.6-pro-ultraspeed",
+        name: "Xiaomi MiMo V2.6 Pro UltraSpeed",
+        context: 1048576,
+        maxTokens: 131072,
+        reasoning: true,
+        input: ["text", "image"],
+      },
+      {
         id: "mimo-v2.5-pro",
         name: "Xiaomi MiMo V2.5 Pro",
         context: 1048576,
@@ -779,6 +787,22 @@ export const integrationProviderCatalog = {
     api: "anthropic-vertex",
     authType: "api_key",
     models: [
+      {
+        id: "claude-opus-5-5",
+        name: "Claude Opus 5.5",
+        context: 1000000,
+        maxTokens: 128000,
+        reasoning: true,
+        input: ["text", "image", "pdf"],
+      },
+      {
+        id: "claude-sonnet-5-5",
+        name: "Claude Sonnet 5.5",
+        context: 1000000,
+        maxTokens: 128000,
+        reasoning: true,
+        input: ["text", "image", "pdf"],
+      },
       {
         id: "claude-opus-5@default",
         name: "Claude Opus 5",
@@ -1174,6 +1198,22 @@ export const integrationProviderCatalog = {
     api: "bedrock-converse-stream",
     authType: "aws-sdk",
     models: [
+      {
+        id: "global.anthropic.claude-opus-5-5",
+        name: "Claude Opus 5.5",
+        context: 1000000,
+        maxTokens: 128000,
+        reasoning: true,
+        input: ["text", "image", "pdf"],
+      },
+      {
+        id: "global.anthropic.claude-sonnet-5-5",
+        name: "Claude Sonnet 5.5",
+        context: 1000000,
+        maxTokens: 128000,
+        reasoning: true,
+        input: ["text", "image", "pdf"],
+      },
       {
         id: "anthropic.claude-opus-4-8",
         name: "Claude Opus 4.8",

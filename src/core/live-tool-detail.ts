@@ -1,6 +1,9 @@
-import { formatExpandedToolActivityDetail } from "../../shared/tool-activity-detail";
+import {
+  formatExpandedToolActivityDetail,
+  LIVE_TOOL_DETAIL_LIMITS,
+} from "../../shared/tool-activity-detail";
 
-export const LIVE_TOOL_DETAIL_MAX_CHARS = 8_000;
+export const LIVE_TOOL_DETAIL_MAX_CHARS = 24_000;
 
 export function liveToolFullDetail(
   toolName: string,
@@ -10,7 +13,13 @@ export function liveToolFullDetail(
 ): string | undefined {
   let detail: string | undefined;
   try {
-    detail = formatExpandedToolActivityDetail(toolName, args, phase, result)?.trim();
+    detail = formatExpandedToolActivityDetail(
+      toolName,
+      args,
+      phase,
+      result,
+      LIVE_TOOL_DETAIL_LIMITS
+    )?.trim();
   } catch {
     return undefined;
   }
