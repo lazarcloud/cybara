@@ -110,6 +110,14 @@ export const codingProviderCatalog = {
         input: ["text", "image", "pdf"],
       },
       {
+        id: "anthropic/claude-opus-5.5",
+        name: "Claude Opus 5.5",
+        context: 1000000,
+        maxTokens: 128000,
+        reasoning: true,
+        input: ["text", "image", "pdf"],
+      },
+      {
         id: "anthropic/claude-opus-5",
         name: "Claude Opus 5",
         context: 1000000,
@@ -124,6 +132,14 @@ export const codingProviderCatalog = {
         maxTokens: 128000,
         reasoning: true,
         input: ["text", "image"],
+      },
+      {
+        id: "anthropic/claude-sonnet-5.5",
+        name: "Claude Sonnet 5.5",
+        context: 1000000,
+        maxTokens: 128000,
+        reasoning: true,
+        input: ["text", "image", "pdf"],
       },
       {
         id: "anthropic/claude-sonnet-5",

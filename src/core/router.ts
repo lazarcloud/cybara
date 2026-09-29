@@ -55,6 +55,7 @@ const PROVIDER_PRICING: readonly PricingEntry[] = [
   ["anthropic", "claude-opus-4-6", 5.0, 25.0, 0.5, 6.25],
   ["anthropic", "claude-sonnet-4-6", 3.0, 15.0, 0.3, 3.75],
   ["anthropic", "claude-haiku-4-5", 1.0, 5.0, 0.1, 1.25],
+  ["anthropic", "claude-sonnet-5-5", 2.0, 10.0, 0.2, 2.5],
   ["anthropic", "claude-sonnet-5", 2.0, 10.0, 0.2, 2.5],
   ["anthropic", "claude-fable-5-1", 10.0, 50.0, 0.25, 12.5],
   ["anthropic", "claude-fable-5", 10.0, 50.0, 1.0, 12.5],
@@ -105,6 +106,8 @@ const PROVIDER_PRICING: readonly PricingEntry[] = [
   ["groq", "llama-3.3-70b-versatile", 0.59, 0.79],
 
   ["openrouter", "anthropic/claude-opus-5", 5.0, 25.0, 0.5, 6.25],
+  ["openrouter", "anthropic/claude-opus-5.5", 4.0, 20.0, 0.2, 5.0],
+  ["openrouter", "anthropic/claude-sonnet-5.5", 2.0, 10.0, 0.2, 2.5],
   ["openrouter", "anthropic/claude-opus-5-fast", 10.0, 50.0, 1.0, 12.5],
   ["openrouter", "anthropic/claude-sonnet-5", 2.0, 10.0, 0.2, 2.5],
   ["openrouter", "anthropic/claude-fable-5", 10.0, 50.0, 1.0, 12.5],

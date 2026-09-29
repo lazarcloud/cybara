@@ -56,6 +56,8 @@ describe("vertex provider entries", () => {
     expect(p.baseUrl).toContain("aiplatform.googleapis.com");
     expect(p.baseUrl).toContain("publishers/anthropic/models");
     expect(providers.anthropic_vertex.models.map((model) => model.id)).toEqual([
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
       "claude-opus-5@default",
       "claude-sonnet-5@default",
     ]);
@@ -76,6 +78,8 @@ describe("vertex provider entries", () => {
   test("bedrock exposes only current models supported by its Converse transport", () => {
     const modelIds = providers.bedrock.models.map((model) => model.id);
     expect(modelIds).toEqual([
+      "global.anthropic.claude-opus-5-5",
+      "global.anthropic.claude-sonnet-5-5",
       "anthropic.claude-opus-4-8",
       "anthropic.claude-fable-5",
       "anthropic.claude-sonnet-5",
