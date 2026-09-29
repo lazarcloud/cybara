@@ -83,6 +83,11 @@ jobs:
           PLAYWRIGHT_SKIP_BROWSER_GC: "1"
         run: bunx playwright install --only-shell chromium
 
+      - name: Build UI (sidecar variants)
+        if: matrix.sidecar
+        shell: bash
+        run: bun run ui:build
+
       - name: Build gateway sidecar (sidecar variants)
         if: matrix.sidecar
         shell: bash
