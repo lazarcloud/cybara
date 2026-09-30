@@ -449,6 +449,13 @@ pub fn setup(app: &App) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?)?;
+    let use_local = MenuItem::with_id(
+        app,
+        "use-local",
+        "Use local gateway",
+        crate::variant_supports_sidecar(),
+        None::<&str>,
+    )?;
     let menu = Menu::with_items(
         app,
         &[
@@ -461,6 +468,7 @@ pub fn setup(app: &App) -> tauri::Result<()> {
             &PredefinedMenuItem::separator(app)?,
             &settings,
             &PredefinedMenuItem::separator(app)?,
+            &use_local,
             &quit,
         ],
     )?;
@@ -485,6 +493,11 @@ pub fn setup(app: &App) -> tauri::Result<()> {
                 show_main_window(app);
                 crate::desktop_update::spawn_install(app.clone());
             }
+            "use-local" => {
+                if let Err(error) = crate::use_local_gateway(app.clone()) {
+                    log::warn!("Failed to switch to the local gateway: {error}");
+                }
+            }
             "quit" => app.exit(0),
             _ => {}
         })
@@ -495,7 +508,9 @@ pub fn setup(app: &App) -> tauri::Result<()> {
     std::thread::spawn(move || {
         loop {
             let endpoint = crate::gateway_endpoint(&app_handle);
-            let label = if crate::gateway::is_compatible_gateway_at(
+            let label = if endpoint.is_remote() {
+                "Gateway · Remote"
+            } else if crate::gateway::is_compatible_gateway_at(
                 &endpoint.addr,
                 env!("CARGO_PKG_VERSION"),
             ) {

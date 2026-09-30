@@ -6,6 +6,7 @@ import { CybaraPet } from "@/components/CybaraPet";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { GatewayAuthGate } from "@/components/GatewayAuthGate";
 import { GatewayStartupFailure } from "@/components/GatewayStartupFailure";
+import { RemoteGatewayPrompt } from "@/components/RemoteGatewayPrompt";
 import { Sidebar, SidebarProvider, useSidebar } from "@/components/layout/Sidebar";
 import { ToastContainer } from "@/components/ui/Toast";
 import { BrowserExtensionPairingPrompt } from "@/components/browser/BrowserExtensionPairingPrompt";
@@ -92,6 +93,44 @@ function ChatRoute() {
     return <MultiChatWorkspace key="multi-chat" />;
   }
   return <Chat key={location.search} />;
+}
+
+function DesktopGatewayGate({ children }: { children: React.ReactNode }) {
+  const desktopRuntime = isTauriDesktopRuntime();
+  const statusQuery = useQuery({
+    queryKey: ["desktop", "gateway-startup"],
+    queryFn: readGatewayStartupStatus,
+    refetchInterval: gatewayStartupPollInterval(desktopRuntime),
+    staleTime: 0,
+  });
+  const status = statusQuery.data;
+  const remoteUrl = status?.remoteUrl ?? null;
+  const remoteOwnership = status?.ownership === "remoteHosted";
+
+  useEffect(() => {
+    if (!desktopRuntime || !remoteUrl || !remoteOwnership) return;
+    try {
+      if (window.location.origin !== new URL(remoteUrl).origin) {
+        window.location.replace(remoteUrl);
+      }
+    } catch {
+      return;
+    }
+  }, [desktopRuntime, remoteUrl, remoteOwnership]);
+
+  if (desktopRuntime && status?.needsRemoteConfig) {
+    return <RemoteGatewayPrompt supportsSidecar={status.supportsSidecar} />;
+  }
+
+  if (desktopRuntime && remoteOwnership && remoteUrl) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--surface-backdrop)]">
+        <Loader2 className="h-8 w-8 animate-spin text-[rgb(var(--accent-primary))]" />
+      </div>
+    );
+  }
+
+  return <>{children}</>;
 }
 
 function SetupGuard({ children }: { children: React.ReactNode }) {
@@ -359,35 +398,37 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <GatewayAuthGate>
-        <SidebarProvider>
-          <div className="flex min-h-screen overflow-hidden bg-[var(--surface-backdrop)]">
-            <ThemeConfigSync />
-            <AppHotkeys />
-            <FileDropNavigationGuard />
-            <Suspense fallback={<PageLoader />}>
-              <Routes>
-                <Route path="/setup" element={<Setup />} />
+      <DesktopGatewayGate>
+        <GatewayAuthGate>
+          <SidebarProvider>
+            <div className="flex min-h-screen overflow-hidden bg-[var(--surface-backdrop)]">
+              <ThemeConfigSync />
+              <AppHotkeys />
+              <FileDropNavigationGuard />
+              <Suspense fallback={<PageLoader />}>
+                <Routes>
+                  <Route path="/setup" element={<Setup />} />
 
-                <Route
-                  path="*"
-                  element={
-                    <SetupGuard>
-                      <Sidebar />
-                      <MainContent>
-                        <AppRoutes />
-                      </MainContent>
-                      <CybaraPet />
-                    </SetupGuard>
-                  }
-                />
-              </Routes>
-            </Suspense>
-            <ToastContainer />
-            <BrowserExtensionPairingPrompt />
-          </div>
-        </SidebarProvider>
-      </GatewayAuthGate>
+                  <Route
+                    path="*"
+                    element={
+                      <SetupGuard>
+                        <Sidebar />
+                        <MainContent>
+                          <AppRoutes />
+                        </MainContent>
+                        <CybaraPet />
+                      </SetupGuard>
+                    }
+                  />
+                </Routes>
+              </Suspense>
+              <ToastContainer />
+              <BrowserExtensionPairingPrompt />
+            </div>
+          </SidebarProvider>
+        </GatewayAuthGate>
+      </DesktopGatewayGate>
     </ErrorBoundary>
   );
 }

@@ -71,7 +71,7 @@ describe("Tauri wiring", () => {
     );
     expect(releaseWorkflow).toContain("Smoke Tauri sidecar embedded UI");
     expect(releaseWorkflow).toContain(
-      'bun run scripts/smoke-tauri-sidecar-ui.ts "${{ matrix.sidecar }}"'
+      'bun run scripts/smoke-tauri-sidecar-ui.ts "${{ matrix.platform.sidecar }}"'
     );
   });
 
@@ -257,6 +257,8 @@ describe("Tauri wiring", () => {
     expect(gatewayPermission).toContain('"get_gateway_startup_status"');
     expect(gatewayPermission).toContain('"restart_gateway_sidecar"');
     expect(gatewayPermission).toContain('"switch_to_local_gateway"');
+    expect(gatewayPermission).toContain('"set_remote_gateway_url"');
+    expect(gatewayPermission).toContain('"use_local_gateway"');
     expect(updaterPermission).toContain('"get_desktop_update_state"');
     expect(updaterPermission).toContain('"check_desktop_update"');
     expect(updaterPermission).toContain('"install_desktop_update"');
@@ -280,5 +282,34 @@ describe("Tauri wiring", () => {
         /^http:\/\/(127\.0\.0\.1|localhost):\d+\/\*$/.test(url)
       )
     ).toBe(true);
+  });
+
+  test("desktop remote gateway wiring keeps IPC limited to loopback origins", () => {
+    const mainRs = readFileSync(join(ROOT_DIR, "src-tauri", "src", "main.rs"), "utf8");
+    const gatewayRs = readFileSync(join(ROOT_DIR, "src-tauri", "src", "gateway.rs"), "utf8");
+    const ownershipRs = readFileSync(
+      join(ROOT_DIR, "src-tauri", "src", "gateway_ownership.rs"),
+      "utf8"
+    );
+    const remoteConfig = JSON.parse(
+      readFileSync(join(ROOT_DIR, "src-tauri", "tauri.remote.conf.json"), "utf8")
+    ) as { bundle?: { externalBin?: string[]; resources?: unknown[] } };
+    const capability = readFileSync(
+      join(ROOT_DIR, "src-tauri", "capabilities", "default.json"),
+      "utf8"
+    );
+
+    expect(mainRs).toContain("set_remote_gateway_url");
+    expect(mainRs).toContain("use_local_gateway");
+    expect(mainRs).toContain("load_remote_gateway_url");
+    expect(mainRs).toContain("CYBARA_GATEWAY_URL");
+    expect(mainRs).toContain("--gateway-url");
+    expect(mainRs).toContain("GatewayIntent::remote");
+    expect(gatewayRs).toContain("pub fn from_url");
+    expect(ownershipRs).toContain("RemoteHosted");
+    expect(remoteConfig.bundle?.externalBin).toEqual([]);
+    expect(remoteConfig.bundle?.resources).toEqual([]);
+    expect(capability).toContain("http://127.0.0.1:4269/*");
+    expect(capability).not.toContain("https://*");
   });
 });

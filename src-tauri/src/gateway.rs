@@ -44,6 +44,7 @@ pub struct GatewayEndpoint {
     pub addr: String,
     pub url: String,
     port: u16,
+    remote: bool,
 }
 
 struct HttpResponse {
@@ -68,11 +69,35 @@ impl GatewayEndpoint {
             addr: format!("127.0.0.1:{port}"),
             url: format!("http://127.0.0.1:{port}"),
             port,
+            remote: false,
         }
+    }
+
+    pub fn from_url(raw: &str) -> Option<Self> {
+        let parsed = tauri::Url::parse(raw.trim()).ok()?;
+        match parsed.scheme() {
+            "http" | "https" => {}
+            _ => return None,
+        }
+        if !parsed.username().is_empty() || parsed.password().is_some() {
+            return None;
+        }
+        let host = parsed.host_str()?.to_string();
+        let port = parsed.port_or_known_default()?;
+        Some(Self {
+            addr: format!("{host}:{port}"),
+            url: parsed.as_str().trim_end_matches('/').to_string(),
+            port,
+            remote: true,
+        })
     }
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    pub fn is_remote(&self) -> bool {
+        self.remote
     }
 }
 
@@ -443,6 +468,41 @@ mod tests {
             }
         });
         (GatewayEndpoint::loopback(port), handle)
+    }
+
+    #[test]
+    fn remote_endpoints_normalize_absolute_gateway_urls() {
+        let https = GatewayEndpoint::from_url(" https://cybara.example.com/ ").expect("https url");
+        assert_eq!(https.url, "https://cybara.example.com");
+        assert_eq!(https.addr, "cybara.example.com:443");
+        assert_eq!(https.port(), 443);
+        assert!(https.is_remote());
+
+        let http = GatewayEndpoint::from_url("http://127.0.0.1:4269/").expect("http url");
+        assert_eq!(http.url, "http://127.0.0.1:4269");
+        assert_eq!(http.addr, "127.0.0.1:4269");
+        assert_eq!(http.port(), 4269);
+        assert!(http.is_remote());
+    }
+
+    #[test]
+    fn remote_endpoints_reject_unsupported_or_credentialed_urls() {
+        for raw in [
+            "",
+            "not a url",
+            "ftp://cybara.example.com",
+            "javascript:alert(1)",
+            "https://user:secret@cybara.example.com",
+        ] {
+            assert!(GatewayEndpoint::from_url(raw).is_none(), "accepted {raw}");
+        }
+    }
+
+    #[test]
+    fn loopback_endpoints_are_not_remote() {
+        let endpoint = GatewayEndpoint::loopback(4269);
+        assert!(!endpoint.is_remote());
+        assert_eq!(endpoint.url, "http://127.0.0.1:4269");
     }
 
     #[test]

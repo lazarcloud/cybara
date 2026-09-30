@@ -186,7 +186,7 @@ describe("app release surface wiring", () => {
     const sidecarBuilder = read("scripts/build-sidecar.ts");
 
     expect(workflow).toContain("Build Sidecar binary");
-    expect(workflow).toContain("CYBARA_SIDECAR_BUN_TARGET: ${{ matrix.bun_target }}");
+    expect(workflow).toContain("CYBARA_SIDECAR_BUN_TARGET: ${{ matrix.platform.bun_target }}");
     expect(workflow).toContain("run: bun run scripts/build-sidecar.ts");
     expect(workflow).toContain("name: Install Windows browser preview runtime");
     expect(workflow).toContain('PLAYWRIGHT_BROWSERS_PATH: "0"');
@@ -196,7 +196,7 @@ describe("app release surface wiring", () => {
     expect(workflow).toContain("id: build_tauri_notarized_macos");
     expect(workflow).toContain("steps.build_tauri_notarized_macos.outcome == 'failure'");
     expect(workflow).toContain(
-      'rm -rf "src-tauri/target/${{ matrix.rust_target }}/release/bundle/dmg"'
+      'rm -rf "src-tauri/target/${{ matrix.platform.target }}/release/bundle/dmg"'
     );
     expect(workflow).toContain("name: Retry Tauri App (signed and notarized macOS)");
     expect(workflow).toContain("bun_target: bun-darwin-arm64");
@@ -214,7 +214,7 @@ describe("app release surface wiring", () => {
     expect(workflow).toContain('args: "--bundles deb,rpm"');
     expect(workflow).toContain("name: Build Linux AppImage (best-effort)");
     expect(workflow).toContain(
-      "args: --verbose --bundles appimage --config src-tauri/tauri.release.conf.json"
+      "args: --verbose --bundles appimage ${{ steps.variant.outputs.config }} ${{ steps.variant.outputs.release_config }} ${{ steps.variant.outputs.artifacts_config }}"
     );
     expect(workflow.indexOf('args: "--bundles deb,rpm"')).toBeLessThan(
       workflow.indexOf("name: Build Linux AppImage (best-effort)")
@@ -224,6 +224,26 @@ describe("app release surface wiring", () => {
     expect(sidecarBuilder).toContain("installBunRuntimeAt(packagedRuntimeDir, target.bunTarget)");
     expect(sidecarBuilder).toContain("PLAYWRIGHT_RUNTIME_PACKAGES");
     expect(sidecarBuilder).toContain("for (const pkg of PLAYWRIGHT_RUNTIME_PACKAGES)");
+  });
+
+  test("desktop variants keep one canonical updater artifact set", () => {
+    const workflow = read(".github/workflows/release.yml");
+    const remoteConfig = read("src-tauri/tauri.remote.conf.json");
+    const noUpdaterArtifactsConfig = read("src-tauri/tauri.no-updater-artifacts.conf.json");
+
+    expect(workflow).toContain("variant: [local, mixed, remote]");
+    expect(workflow).toContain("CYBARA_DESKTOP_VARIANT: ${{ matrix.variant }}");
+    expect(workflow).toContain("tauri.remote.conf.json");
+    expect(workflow).toContain("tauri.no-updater-artifacts.conf.json");
+    expect(workflow).toContain('asset_pattern=""');
+    expect(workflow).toContain(
+      'asset_pattern="[name]-${{ matrix.variant }}-[version]_[arch][setup][ext]"'
+    );
+    expect(workflow).toContain('if [ "${{ matrix.variant }}" != "mixed" ]');
+    expect(workflow).toContain("assetNamePattern: ${{ steps.variant.outputs.asset_pattern }}");
+    expect(workflow).toContain("${{ steps.variant.outputs.artifacts_config }}");
+    expect(remoteConfig).toContain('"externalBin": []');
+    expect(noUpdaterArtifactsConfig).toContain('"createUpdaterArtifacts": false');
   });
 
   test("CLI release binaries embed the UI for every supported OS and architecture", () => {

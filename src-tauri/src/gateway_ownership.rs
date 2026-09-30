@@ -8,6 +8,7 @@ pub enum GatewayOwnership {
     #[default]
     ManagedLocal,
     AttachedExternal,
+    RemoteHosted,
 }
 
 impl GatewayOwnership {
@@ -15,6 +16,7 @@ impl GatewayOwnership {
         match self {
             Self::ManagedLocal => "managedLocal",
             Self::AttachedExternal => "attachedExternal",
+            Self::RemoteHosted => "remoteHosted",
         }
     }
 }
@@ -46,6 +48,14 @@ impl GatewayIntent {
             ownership: GatewayOwnership::AttachedExternal,
             port,
             gateway_id: Some(gateway_id),
+        }
+    }
+
+    pub fn remote(url: String, port: u16) -> Self {
+        Self {
+            ownership: GatewayOwnership::RemoteHosted,
+            port,
+            gateway_id: Some(url),
         }
     }
 }
@@ -109,6 +119,7 @@ pub fn watchdog_action(
     match ownership {
         GatewayOwnership::ManagedLocal => WatchdogAction::RestartManagedSidecar,
         GatewayOwnership::AttachedExternal => WatchdogAction::ReconnectExternal,
+        GatewayOwnership::RemoteHosted => WatchdogAction::Healthy,
     }
 }
 
@@ -162,7 +173,9 @@ impl GatewayOwnershipController {
     pub fn recovery_action(&self) -> RecoveryAction {
         match self.intent.ownership {
             GatewayOwnership::ManagedLocal => RecoveryAction::RestartManagedSidecar,
-            GatewayOwnership::AttachedExternal => RecoveryAction::ReconnectExternal,
+            GatewayOwnership::AttachedExternal | GatewayOwnership::RemoteHosted => {
+                RecoveryAction::ReconnectExternal
+            }
         }
     }
 
@@ -203,13 +216,15 @@ fn read_gateway_intent(path: &Path) -> Result<GatewayIntent, String> {
     if intent.port == 0 {
         return Err("Invalid gateway intent: port must be greater than zero".into());
     }
-    if intent.ownership == GatewayOwnership::AttachedExternal
-        && intent
-            .gateway_id
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or_default()
-            .is_empty()
+    if matches!(
+        intent.ownership,
+        GatewayOwnership::AttachedExternal | GatewayOwnership::RemoteHosted
+    ) && intent
+        .gateway_id
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default()
+        .is_empty()
     {
         return Err("Invalid gateway intent: external gateway identity is missing".into());
     }
@@ -452,6 +467,50 @@ mod tests {
             RecoveryAction::ReconnectExternal
         );
         std::fs::remove_dir_all(root).expect("remove intent fixture");
+    }
+
+    #[test]
+    fn remote_intent_survives_application_restart() {
+        let root =
+            std::env::temp_dir().join(format!("cybara-remote-intent-{}", std::process::id()));
+        let path = root.join("gateway-intent.json");
+        let intent = GatewayIntent::remote("https://cybara.example.com".into(), 443);
+        persist_gateway_intent(&path, &intent).expect("persist remote intent");
+        let loaded = load_gateway_intent(&path, 4269).expect("load remote intent");
+        assert_eq!(loaded.intent, intent);
+        assert!(loaded.persisted);
+        assert_eq!(loaded.intent.ownership.as_str(), "remoteHosted");
+        std::fs::remove_dir_all(root).expect("remove intent fixture");
+    }
+
+    #[test]
+    fn remote_intent_requires_a_gateway_url() {
+        let root = std::env::temp_dir().join(format!(
+            "cybara-remote-intent-invalid-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("create fixture");
+        let path = root.join("gateway-intent.json");
+        std::fs::write(&path, br#"{"ownership":"remoteHosted","port":443}"#)
+            .expect("write fixture");
+        assert!(read_gateway_intent(&path).is_err());
+        std::fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn remote_hosted_gateways_are_never_restarted_as_sidecars() {
+        assert_eq!(
+            watchdog_action(GatewayOwnership::RemoteHosted, false, true),
+            WatchdogAction::Healthy
+        );
+        let controller = GatewayOwnershipController::new(GatewayIntent::remote(
+            "https://cybara.example.com".into(),
+            443,
+        ));
+        assert_eq!(
+            controller.recovery_action(),
+            RecoveryAction::ReconnectExternal
+        );
     }
 
     #[test]

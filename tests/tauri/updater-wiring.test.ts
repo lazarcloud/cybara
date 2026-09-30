@@ -103,7 +103,7 @@ describe("desktop updater wiring", () => {
     expect(workflow).toContain("TAURI_SIGNING_PRIVATE_KEY");
     expect(workflow).toContain("TAURI_SIGNING_PRIVATE_KEY_PASSWORD");
     expect(workflow).toContain("tagName: ${{ github.ref_name }}");
-    expect(workflow).toContain("--config src-tauri/tauri.release.conf.json");
+    expect(workflow).toContain('release_config="--config src-tauri/tauri.release.conf.json"');
     expect(workflow).toContain("releaseDraft: true");
     expect(workflow).toContain("CYBARA_TAURI_UPDATER_PUBKEY");
     expect(workflow).toContain("publish-release:");
@@ -122,7 +122,7 @@ describe("desktop updater wiring", () => {
     expect(workflow).toContain("tauri-apps/tauri-action@");
     expect(workflow).toContain("HAS_MACOS_SIGNING");
     expect(workflow).toContain("Build Tauri App (unsigned/no Apple signing)");
-    expect(workflow).toContain("matrix.platform != 'macos' || env.HAS_MACOS_SIGNING != 'true'");
+    expect(workflow).toContain("matrix.platform.os != 'macos' || env.HAS_MACOS_SIGNING != 'true'");
     expect(workflow).toContain("Build Tauri App (signed and notarized macOS)");
     expect(workflow).toContain("id: build_tauri_notarized_macos");
     expect(workflow).toContain("steps.build_tauri_notarized_macos.outcome == 'failure'");

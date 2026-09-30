@@ -63,6 +63,36 @@ External intent survives desktop restarts. Restarting Desktop while the forward 
 
 The gateway remains authoritative for its web runtime and API behavior. Same-major patch drift attaches when the API compatibility contract allows it; different major versions and incompatible or malformed API metadata fail closed. Existing release integrity and authentication requirements are unchanged.
 
+## Desktop Build Variants
+
+Release builds compile one of three desktop flavors, selected with the
+`CYBARA_DESKTOP_VARIANT` build environment variable:
+
+| Variant | Bundled gateway | Remote gateway | Release asset suffix |
+|---------|-----------------|----------------|----------------------|
+| `local` | Yes | No | `-local-` |
+| `mixed` (default) | Yes | Yes | none |
+| `remote` | No | Yes | `-remote-` |
+
+`mixed` is the canonical artifact name (`Cybara_x.y.z_arch.ext`) and the only
+variant that publishes signed updater artifacts, so the auto-updater channel
+always resolves to a build that supports both modes. `local` and `remote` are
+published for operators who want a fixed deployment shape; their installers use
+the variant suffix and update through the same signed manifest.
+
+A `mixed` or `remote` build connects to a remote gateway when one is configured.
+The URL is resolved in this order:
+
+1. the `--gateway-url <url>` command-line argument,
+2. the `CYBARA_GATEWAY_URL` environment variable,
+3. the URL saved from **Settings → Gateway → Desktop gateway** or the first-run
+   prompt.
+
+Only `http` and `https` URLs without embedded credentials are accepted. Remote
+gateways render their own web UI in the desktop window; the local Tauri IPC
+surface remains restricted to loopback origins. Choose **Use local gateway**
+from the tray menu or settings to return to the bundled sidecar.
+
 ## Desktop Auto Updates
 
 Official release builds include a signed updater channel backed by GitHub Releases:
