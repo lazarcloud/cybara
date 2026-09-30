@@ -44,6 +44,7 @@ pub struct GatewayEndpoint {
     pub addr: String,
     pub url: String,
     port: u16,
+    remote: bool,
 }
 
 struct HttpResponse {
@@ -68,11 +69,35 @@ impl GatewayEndpoint {
             addr: format!("127.0.0.1:{port}"),
             url: format!("http://127.0.0.1:{port}"),
             port,
+            remote: false,
         }
+    }
+
+    /// Build an endpoint from an absolute gateway URL such as
+    /// `https://cybara.example.com`. Remote endpoints are used for navigation
+    /// only: the loopback ownership probes are intentionally bypassed for them.
+    pub fn from_url(raw: &str) -> Option<Self> {
+        let parsed = tauri::Url::parse(raw.trim()).ok()?;
+        match parsed.scheme() {
+            "http" | "https" => {}
+            _ => return None,
+        }
+        let host = parsed.host_str()?.to_string();
+        let port = parsed.port_or_known_default()?;
+        Some(Self {
+            addr: format!("{host}:{port}"),
+            url: parsed.as_str().trim_end_matches('/').to_string(),
+            port,
+            remote: true,
+        })
     }
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    pub fn is_remote(&self) -> bool {
+        self.remote
     }
 }
 

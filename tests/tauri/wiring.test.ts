@@ -71,7 +71,7 @@ describe("Tauri wiring", () => {
     );
     expect(releaseWorkflow).toContain("Smoke Tauri sidecar embedded UI");
     expect(releaseWorkflow).toContain(
-      'bun run scripts/smoke-tauri-sidecar-ui.ts "${{ matrix.sidecar }}"'
+      'bun run scripts/smoke-tauri-sidecar-ui.ts "${{ matrix.platform.sidecar }}"'
     );
   });
 

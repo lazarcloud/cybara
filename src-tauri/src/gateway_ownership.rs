@@ -8,6 +8,10 @@ pub enum GatewayOwnership {
     #[default]
     ManagedLocal,
     AttachedExternal,
+    /// A user-configured remote gateway (for example https://cybara.example.com).
+    /// The desktop never starts a sidecar for this ownership and never probes
+    /// loopback; the window simply renders the remote gateway's web UI.
+    RemoteHosted,
 }
 
 impl GatewayOwnership {
@@ -15,6 +19,7 @@ impl GatewayOwnership {
         match self {
             Self::ManagedLocal => "managedLocal",
             Self::AttachedExternal => "attachedExternal",
+            Self::RemoteHosted => "remoteHosted",
         }
     }
 }
@@ -46,6 +51,16 @@ impl GatewayIntent {
             ownership: GatewayOwnership::AttachedExternal,
             port,
             gateway_id: Some(gateway_id),
+        }
+    }
+
+    /// A remote gateway identified by its base URL. The URL is stored in
+    /// `gateway_id` so the intent round-trips through persistence unchanged.
+    pub fn remote(url: String, port: u16) -> Self {
+        Self {
+            ownership: GatewayOwnership::RemoteHosted,
+            port,
+            gateway_id: Some(url),
         }
     }
 }
@@ -109,6 +124,7 @@ pub fn watchdog_action(
     match ownership {
         GatewayOwnership::ManagedLocal => WatchdogAction::RestartManagedSidecar,
         GatewayOwnership::AttachedExternal => WatchdogAction::ReconnectExternal,
+        GatewayOwnership::RemoteHosted => WatchdogAction::Healthy,
     }
 }
 
@@ -162,7 +178,9 @@ impl GatewayOwnershipController {
     pub fn recovery_action(&self) -> RecoveryAction {
         match self.intent.ownership {
             GatewayOwnership::ManagedLocal => RecoveryAction::RestartManagedSidecar,
-            GatewayOwnership::AttachedExternal => RecoveryAction::ReconnectExternal,
+            GatewayOwnership::AttachedExternal | GatewayOwnership::RemoteHosted => {
+                RecoveryAction::ReconnectExternal
+            }
         }
     }
 
@@ -203,13 +221,15 @@ fn read_gateway_intent(path: &Path) -> Result<GatewayIntent, String> {
     if intent.port == 0 {
         return Err("Invalid gateway intent: port must be greater than zero".into());
     }
-    if intent.ownership == GatewayOwnership::AttachedExternal
-        && intent
-            .gateway_id
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or_default()
-            .is_empty()
+    if matches!(
+        intent.ownership,
+        GatewayOwnership::AttachedExternal | GatewayOwnership::RemoteHosted
+    ) && intent
+        .gateway_id
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default()
+        .is_empty()
     {
         return Err("Invalid gateway intent: external gateway identity is missing".into());
     }

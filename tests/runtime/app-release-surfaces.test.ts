@@ -166,7 +166,7 @@ describe("app release surface wiring", () => {
     const sidecarBuilder = read("scripts/build-sidecar.ts");
 
     expect(workflow).toContain("Build Sidecar binary");
-    expect(workflow).toContain("CYBARA_SIDECAR_BUN_TARGET: ${{ matrix.bun_target }}");
+    expect(workflow).toContain("CYBARA_SIDECAR_BUN_TARGET: ${{ matrix.platform.bun_target }}");
     expect(workflow).toContain("run: bun run scripts/build-sidecar.ts");
     expect(workflow).toContain("name: Install Windows browser preview runtime");
     expect(workflow).toContain('PLAYWRIGHT_BROWSERS_PATH: "0"');
@@ -176,7 +176,7 @@ describe("app release surface wiring", () => {
     expect(workflow).toContain("id: build_tauri_notarized_macos");
     expect(workflow).toContain("steps.build_tauri_notarized_macos.outcome == 'failure'");
     expect(workflow).toContain(
-      'rm -rf "src-tauri/target/${{ matrix.rust_target }}/release/bundle/dmg"'
+      'rm -rf "src-tauri/target/${{ matrix.platform.target }}/release/bundle/dmg"'
     );
     expect(workflow).toContain("name: Retry Tauri App (signed and notarized macOS)");
     expect(workflow).toContain("bun_target: bun-darwin-arm64");
@@ -194,7 +194,7 @@ describe("app release surface wiring", () => {
     expect(workflow).toContain('args: "--bundles deb,rpm"');
     expect(workflow).toContain("name: Build Linux AppImage (best-effort)");
     expect(workflow).toContain(
-      "args: --verbose --bundles appimage --config src-tauri/tauri.release.conf.json"
+      "args: --verbose --bundles appimage ${{ steps.variant.outputs.config }} ${{ steps.variant.outputs.release_config }}"
     );
     expect(workflow.indexOf('args: "--bundles deb,rpm"')).toBeLessThan(
       workflow.indexOf("name: Build Linux AppImage (best-effort)")
