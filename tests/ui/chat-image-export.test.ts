@@ -51,7 +51,7 @@ describe("chat image file names", () => {
   });
 
   test("strips path segments and characters that are invalid in file names", () => {
-    expect(chatImageFileName("../../etc/passwd", "image/png")).toBe("passwd.png");
+    expect(chatImageFileName("../../etc/hosts", "image/png")).toBe("hosts.png");
     expect(chatImageFileName("C:\\Users\\me\\a<b>c?.png", "image/png")).toBe("abc.png");
     expect(chatImageFileName("x".repeat(300), "image/png").length).toBeLessThanOrEqual(84);
   });
