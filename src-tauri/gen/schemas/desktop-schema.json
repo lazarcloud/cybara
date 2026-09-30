@@ -387,10 +387,10 @@
       "description": "Permission identifier",
       "oneOf": [
         {
-          "description": "Allows the Cybara interface to read local desktop gateway startup and authentication state.",
+          "description": "Allows the Cybara interface to read local desktop gateway startup and authentication state, and to switch between a local and remote gateway.",
           "type": "string",
           "const": "desktop-gateway",
-          "markdownDescription": "Allows the Cybara interface to read local desktop gateway startup and authentication state."
+          "markdownDescription": "Allows the Cybara interface to read local desktop gateway startup and authentication state, and to switch between a local and remote gateway."
         },
         {
           "description": "Allows the Cybara interface to check, monitor, and install signed desktop updates.",

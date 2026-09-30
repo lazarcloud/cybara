@@ -113,43 +113,50 @@ jobs:
 
   # ── Tauri desktop apps (platform-native builds) ────────────────────────────
   build-tauri:
-    name: Tauri ${{ matrix.rust_target }}
+    name: Tauri ${{ matrix.platform.target }} · ${{ matrix.variant }}
     needs: quality
     # Tauri builds are best-effort — they don't block the CLI release.
     continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
-        include:
+        # Three desktop flavors are built per platform:
+        #   local  — bundled gateway sidecar only (upstream behavior)
+        #   mixed  — bundled gateway sidecar + optional remote server
+        #   remote — no bundled gateway, connects to an existing server
+        # The base src-tauri/tauri.conf.json is the remote-only configuration;
+        # local/mixed add src-tauri/tauri.sidecar.conf.json back.
+        variant: [local, mixed, remote]
+        platform:
           # macOS arm64 — native build on Apple Silicon (macos-26)
-          - platform: macos
+          - os: macos
             runner: macos-26
             args: "--target aarch64-apple-darwin"
-            rust_target: aarch64-apple-darwin
+            target: aarch64-apple-darwin
             bun_target: bun-darwin-arm64
             sidecar: "src-tauri/bin/cybara-aarch64-apple-darwin"
           # macOS x64 — cross-compiled on Apple Silicon (macos-26). The Intel
           # macos-13 runners are deprecated/scarce and can queue for hours; Rust
           # cross-compiles x86_64 fine with the target added below, and the bun
           # sidecar cross-compiles via its own --target.
-          - platform: macos
+          - os: macos
             runner: macos-26
             args: "--target x86_64-apple-darwin"
-            rust_target: x86_64-apple-darwin
+            target: x86_64-apple-darwin
             bun_target: bun-darwin-x64
             sidecar: "src-tauri/bin/cybara-x86_64-apple-darwin"
           # Windows x64 — GitHub-hosted Windows runner
-          - platform: windows
+          - os: windows
             runner: windows-latest
             args: ""
-            rust_target: x86_64-pc-windows-msvc
+            target: x86_64-pc-windows-msvc
             bun_target: bun-windows-x64
             sidecar: "src-tauri/bin/cybara-x86_64-pc-windows-msvc.exe"
           # Linux x64 — GitHub-hosted Linux runner
-          - platform: linux
+          - os: linux
             runner: ubuntu-22.04
             args: "--bundles deb,rpm"
-            rust_target: x86_64-unknown-linux-gnu
+            target: x86_64-unknown-linux-gnu
             bun_target: bun-linux-x64
             sidecar: "src-tauri/bin/cybara-x86_64-unknown-linux-gnu"
             appimage: true
@@ -158,16 +165,18 @@ jobs:
           # tooling all run natively. linuxdeploy/appimagetool publish aarch64
           # AppImages, and tauri-bundler selects them from the target triple, so
           # the AppImage bundle builds natively on this runner.
-          - platform: linux
+          - os: linux
             runner: ubuntu-24.04-arm
             args: "--bundles deb,rpm"
-            rust_target: aarch64-unknown-linux-gnu
+            target: aarch64-unknown-linux-gnu
             bun_target: bun-linux-arm64
             sidecar: "src-tauri/bin/cybara-aarch64-unknown-linux-gnu"
             appimage: true
 
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.platform.runner }}
     env:
+      CYBARA_DESKTOP_VARIANT: ${{ matrix.variant }}
+      HAS_UPDATER_SIGNING: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' && secrets.TAURI_SIGNING_PUBLIC_KEY != '' }}
       HAS_MACOS_SIGNING: ${{ secrets.MACOS_CERTIFICATE != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' && secrets.MACOS_SIGN_IDENTITY != '' }}
       HAS_MACOS_NOTARY: ${{ secrets.MACOS_NOTARY_API_KEY != '' && secrets.MACOS_NOTARY_API_KEY_ID != '' && secrets.MACOS_NOTARY_API_ISSUER_ID != '' }}
     steps:
@@ -178,23 +187,23 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - name: Install Rust stable (non-Windows)
-        if: matrix.platform != 'windows'
+        if: matrix.platform.os != 'windows'
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
-          targets: ${{ matrix.rust_target }}
+          targets: ${{ matrix.platform.target }}
       # dtolnay/rust-toolchain runs its setup via `shell: bash`, which on the
       # self-hosted Windows runner resolves to WSL's bash (System32\bash.exe)
       # and mangles Windows paths ("No such file or directory"). Install via
       # rustup in the native (PowerShell) shell instead. (Permanent fix: remove
       # WSL bash from the runner so `shell: bash` uses git-bash.)
       - name: Install Rust stable (Windows)
-        if: matrix.platform == 'windows'
+        if: matrix.platform.os == 'windows'
         run: |
           rustup toolchain install stable --profile minimal --no-self-update
           rustup default stable
-          rustup target add ${{ matrix.rust_target }}
+          rustup target add ${{ matrix.platform.target }}
       - name: Install Linux dependencies
-        if: matrix.platform == 'linux'
+        if: matrix.platform.os == 'linux'
         run: |
           sudo apt-get update
           FUSE_PACKAGE="libfuse2"
@@ -230,7 +239,7 @@ jobs:
       - name: Run postinstall
         run: bun run scripts/postinstall.ts
       - name: Install Windows browser preview runtime
-        if: matrix.platform == 'windows'
+        if: matrix.platform.os == 'windows' && matrix.variant != 'remote'
         env:
           PLAYWRIGHT_BROWSERS_PATH: "0"
           PLAYWRIGHT_SKIP_BROWSER_GC: "1"
@@ -239,16 +248,37 @@ jobs:
         run: bun run version:sync
       - name: Build UI
         run: bun run ui:build
+      # The base config is remote-only; local/mixed builds add the bundled
+      # gateway sidecar back via tauri.sidecar.conf.json. Updater artifacts are
+      # produced only by the canonical `mixed` flavor so the single updater
+      # manifest stays unambiguous.
+      - name: Resolve desktop variant config
+        id: variant
+        shell: bash
+        run: |
+          sidecar_config=""
+          release_config=""
+          if [ "${{ matrix.variant }}" != "remote" ]; then
+            sidecar_config="--config src-tauri/tauri.sidecar.conf.json"
+          fi
+          if [ "${{ matrix.variant }}" = "mixed" ] && [ "${HAS_UPDATER_SIGNING}" = "true" ]; then
+            release_config="--config src-tauri/tauri.release.conf.json"
+          fi
+          echo "config=$sidecar_config" >> "$GITHUB_OUTPUT"
+          echo "release_config=$release_config" >> "$GITHUB_OUTPUT"
       - name: Build Sidecar binary
+        if: matrix.variant != 'remote'
         env:
           CYBARA_BUILD_COMMIT: ${{ github.sha }}
-          CYBARA_SIDECAR_BUN_TARGET: ${{ matrix.bun_target }}
+          CYBARA_SIDECAR_BUN_TARGET: ${{ matrix.platform.bun_target }}
         run: bun run scripts/build-sidecar.ts
       - name: Smoke Tauri sidecar embedded UI
+        if: matrix.variant != 'remote'
         env:
           CYBARA_EXPECTED_BUILD_COMMIT: ${{ github.sha }}
-        run: bun run scripts/smoke-tauri-sidecar-ui.ts "${{ matrix.sidecar }}"
+        run: bun run scripts/smoke-tauri-sidecar-ui.ts "${{ matrix.platform.sidecar }}"
       - name: Prepare updater config
+        if: matrix.variant == 'mixed' && env.HAS_UPDATER_SIGNING == 'true'
         env:
           CYBARA_TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_SIGNING_PUBLIC_KEY }}
           CYBARA_RELEASE_REPOSITORY: ${{ github.repository }}
@@ -258,7 +288,7 @@ jobs:
       # signing/notarization secret set exists. Passing empty Apple env vars to
       # tauri-action makes it attempt an invalid keychain import.
       - name: Prepare Apple notary key (macOS)
-        if: matrix.platform == 'macos' && env.HAS_MACOS_SIGNING == 'true' && env.HAS_MACOS_NOTARY == 'true'
+        if: matrix.platform.os == 'macos' && env.HAS_MACOS_SIGNING == 'true' && env.HAS_MACOS_NOTARY == 'true'
         shell: bash
         env:
           MACOS_NOTARY_API_KEY: ${{ secrets.MACOS_NOTARY_API_KEY }}
@@ -267,7 +297,7 @@ jobs:
           echo "$MACOS_NOTARY_API_KEY" | base64 --decode > "$RUNNER_TEMP/notary_key.p8"
           echo "Apple notary key staged for notarization."
       - name: Import Apple signing certificate for sidecar resources (macOS)
-        if: matrix.platform == 'macos' && env.HAS_MACOS_SIGNING == 'true'
+        if: matrix.platform.os == 'macos' && env.HAS_MACOS_SIGNING == 'true'
         shell: bash
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
@@ -289,12 +319,12 @@ jobs:
             $(security list-keychains -d user | tr -d '"')
           rm -f "$RUNNER_TEMP/tauri-sidecar-cert.p12"
       - name: Sign Tauri sidecar runtime resources (macOS)
-        if: matrix.platform == 'macos' && env.HAS_MACOS_SIGNING == 'true'
+        if: matrix.platform.os == 'macos' && env.HAS_MACOS_SIGNING == 'true' && matrix.variant != 'remote'
         env:
           CYBARA_MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
         run: bun run scripts/codesign-tauri-sidecar-runtime.ts
       - name: Build Tauri App (unsigned/no Apple signing)
-        if: matrix.platform != 'macos' || env.HAS_MACOS_SIGNING != 'true'
+        if: matrix.platform.os != 'macos' || env.HAS_MACOS_SIGNING != 'true'
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -309,13 +339,14 @@ jobs:
           releaseBody: "Download the appropriate installer for your platform below."
           releaseDraft: true
           includeUpdaterJson: false
-          args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json
+          assetNamePattern: "[name]-${{ matrix.variant }}-[version]-[arch][setup].[ext]"
+          args: ${{ matrix.platform.args }} ${{ steps.variant.outputs.config }} ${{ steps.variant.outputs.release_config }}
       # linuxdeploy aborts when `ldd` exits non-zero on the Bun-compiled sidecar
       # (bun --compile ELFs make ldd fail even though the binary runs fine).
       # Shim ldd so failures report "statically linked" and linuxdeploy skips
       # dependency deployment for that binary instead of crashing.
       - name: Shim ldd for Bun sidecar (AppImage)
-        if: matrix.platform == 'linux' && matrix.appimage == true
+        if: matrix.platform.os == 'linux' && matrix.platform.appimage == true
         run: |
           mkdir -p "$RUNNER_TEMP/ldd-shim"
           cat > "$RUNNER_TEMP/ldd-shim/ldd" <<'EOF'
@@ -332,7 +363,7 @@ jobs:
           chmod +x "$RUNNER_TEMP/ldd-shim/ldd"
           echo "$RUNNER_TEMP/ldd-shim" >> "$GITHUB_PATH"
       - name: Build Linux AppImage (best-effort)
-        if: matrix.platform == 'linux' && matrix.appimage == true
+        if: matrix.platform.os == 'linux' && matrix.platform.appimage == true
         continue-on-error: true
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
@@ -347,9 +378,10 @@ jobs:
           releaseBody: "Download the appropriate installer for your platform below."
           releaseDraft: true
           includeUpdaterJson: false
-          args: --verbose --bundles appimage --config src-tauri/tauri.release.conf.json
+          assetNamePattern: "[name]-${{ matrix.variant }}-[version]-[arch][setup].[ext]"
+          args: --verbose --bundles appimage ${{ steps.variant.outputs.config }} ${{ steps.variant.outputs.release_config }}
       - name: Build Tauri App (signed macOS)
-        if: matrix.platform == 'macos' && env.HAS_MACOS_SIGNING == 'true' && env.HAS_MACOS_NOTARY != 'true'
+        if: matrix.platform.os == 'macos' && env.HAS_MACOS_SIGNING == 'true' && env.HAS_MACOS_NOTARY != 'true'
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -366,9 +398,10 @@ jobs:
           releaseBody: "Download the appropriate installer for your platform below."
           releaseDraft: true
           includeUpdaterJson: false
-          args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json
+          assetNamePattern: "[name]-${{ matrix.variant }}-[version]-[arch][setup].[ext]"
+          args: ${{ matrix.platform.args }} ${{ steps.variant.outputs.config }} ${{ steps.variant.outputs.release_config }}
       - name: Build Tauri App (signed and notarized macOS)
-        if: matrix.platform == 'macos' && env.HAS_MACOS_SIGNING == 'true' && env.HAS_MACOS_NOTARY == 'true'
+        if: matrix.platform.os == 'macos' && env.HAS_MACOS_SIGNING == 'true' && env.HAS_MACOS_NOTARY == 'true'
         id: build_tauri_notarized_macos
         continue-on-error: true
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
@@ -390,9 +423,10 @@ jobs:
           releaseBody: "Download the appropriate installer for your platform below."
           releaseDraft: true
           includeUpdaterJson: false
-          args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json
+          assetNamePattern: "[name]-${{ matrix.variant }}-[version]-[arch][setup].[ext]"
+          args: ${{ matrix.platform.args }} ${{ steps.variant.outputs.config }} ${{ steps.variant.outputs.release_config }}
       - name: Reset macOS disk image state
-        if: matrix.platform == 'macos' && steps.build_tauri_notarized_macos.outcome == 'failure'
+        if: matrix.platform.os == 'macos' && steps.build_tauri_notarized_macos.outcome == 'failure'
         shell: bash
         run: |
           set -euo pipefail
@@ -400,10 +434,10 @@ jobs:
             hdiutil detach "$device" -force || true
           done < <(hdiutil info | awk '/\/Volumes\/Cybara/{print $1}')
           pkill -9 diskimages-helper || true
-          rm -rf "src-tauri/target/${{ matrix.rust_target }}/release/bundle/dmg"
+          rm -rf "src-tauri/target/${{ matrix.platform.target }}/release/bundle/dmg"
           sleep 5
       - name: Retry Tauri App (signed and notarized macOS)
-        if: matrix.platform == 'macos' && steps.build_tauri_notarized_macos.outcome == 'failure'
+        if: matrix.platform.os == 'macos' && steps.build_tauri_notarized_macos.outcome == 'failure'
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -423,9 +457,10 @@ jobs:
           releaseBody: "Download the appropriate installer for your platform below."
           releaseDraft: true
           includeUpdaterJson: false
-          args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json
+          assetNamePattern: "[name]-${{ matrix.variant }}-[version]-[arch][setup].[ext]"
+          args: ${{ matrix.platform.args }} ${{ steps.variant.outputs.config }} ${{ steps.variant.outputs.release_config }}
       - name: Clean up Tauri sidecar signing keychain
-        if: always() && matrix.platform == 'macos' && env.HAS_MACOS_SIGNING == 'true'
+        if: always() && matrix.platform.os == 'macos' && env.HAS_MACOS_SIGNING == 'true'
         run: security delete-keychain "$RUNNER_TEMP/cybara-tauri-sidecar-signing.keychain-db" || true
 
   # ── Native macOS app (SwiftUI shell) — signed + notarized ───────────────────

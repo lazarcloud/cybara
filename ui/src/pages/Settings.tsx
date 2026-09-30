@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/Badge";
 import { EmbeddedPageLayout, PageLayout } from "@/components/layout";
 import { GatewayPathSettingsSection } from "@/components/settings/GatewayPathSettingsSection";
 import { GatewayRemoteAccessSection } from "@/components/settings/GatewayRemoteAccessSection";
+import { DesktopGatewaySettingsSection } from "@/components/settings/DesktopGatewaySettingsSection";
 import { NearbySettingsSection } from "@/components/settings/NearbySettingsSection";
 import { SystemBackupSettingsSection } from "@/components/settings/SystemBackupSettingsSection";
 import { SystemMonitorPanel } from "@/components/settings/SystemMonitorPanel";
@@ -981,6 +982,8 @@ function GatewayAuthSettingsSection() {
               </div>
             )}
           </div>
+
+          <DesktopGatewaySettingsSection />
 
           <GatewayRemoteAccessSection
             disabled={controlsDisabled}
