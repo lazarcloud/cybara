@@ -208,15 +208,21 @@ function firstExisting(paths: Array<string | null | undefined>): string | null {
   return null;
 }
 
+function whichOnEnvPath(name: string, env: NodeJS.ProcessEnv): string | null {
+  const pathValue = env.PATH ?? env.Path;
+  if (!pathValue) return null;
+  return Bun.which(name, { PATH: pathValue });
+}
+
 export function resolveAndroidSdkExecutable(
   name: "adb" | "emulator",
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
   home: string = env.HOME || env.USERPROFILE || homedir()
 ): string | null {
-  const fromPath = Bun.which(name) ?? Bun.which(platform === "win32" ? `${name}.exe` : name);
-  if (fromPath) return fromPath;
   const executable = platform === "win32" ? `${name}.exe` : name;
+  const fromPath = whichOnEnvPath(name, env) ?? whichOnEnvPath(executable, env);
+  if (fromPath) return fromPath;
   const roots = [
     env.ANDROID_SDK_ROOT,
     env.ANDROID_HOME,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PNG } from "pngjs";
@@ -292,6 +292,22 @@ describe("mobile simulator discovery", () => {
     expect(
       resolveAndroidSdkExecutable("adb", "win32", { LOCALAPPDATA: windowsLocal }, join(root, "win"))
     ).toBe(windowsAdb);
+  });
+
+  test("honors the injected PATH instead of the host PATH", () => {
+    const root = mkdtempSync(join(tmpdir(), "cybara-android-path-"));
+    try {
+      const bin = join(root, "bin");
+      mkdirSync(bin, { recursive: true });
+      const adb = join(bin, "adb");
+      writeFileSync(adb, "");
+      chmodSync(adb, 0o755);
+
+      expect(resolveAndroidSdkExecutable("adb", "linux", { PATH: bin }, root)).toBe(adb);
+      expect(resolveAndroidSdkExecutable("emulator", "linux", { PATH: bin }, root)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("returns platform status without requiring either SDK", async () => {
