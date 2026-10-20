@@ -28,6 +28,7 @@ import {
 } from "@/lib/desktopGatewayStartup";
 import { isTauriDesktopRuntime } from "@/lib/desktopHost";
 import { preventFileDropNavigation } from "@/lib/fileDrop";
+import { isRemoteGatewayNavigationPending } from "@/lib/remoteGatewayNavigation";
 import { readSetupComplete, resolveSetupGate, writeSetupComplete } from "@/lib/setupGate";
 import { isPetWindow } from "@/lib/tauriPet";
 import { cn } from "@/lib/utils";
@@ -106,23 +107,21 @@ function DesktopGatewayGate({ children }: { children: React.ReactNode }) {
   const status = statusQuery.data;
   const remoteUrl = status?.remoteUrl ?? null;
   const remoteOwnership = status?.ownership === "remoteHosted";
+  const remoteNavigationPending =
+    desktopRuntime &&
+    remoteOwnership &&
+    isRemoteGatewayNavigationPending(window.location.origin, remoteUrl);
 
   useEffect(() => {
-    if (!desktopRuntime || !remoteUrl || !remoteOwnership) return;
-    try {
-      if (window.location.origin !== new URL(remoteUrl).origin) {
-        window.location.replace(remoteUrl);
-      }
-    } catch {
-      return;
-    }
-  }, [desktopRuntime, remoteUrl, remoteOwnership]);
+    if (!remoteNavigationPending || !remoteUrl) return;
+    window.location.replace(remoteUrl);
+  }, [remoteNavigationPending, remoteUrl]);
 
   if (desktopRuntime && status?.needsRemoteConfig) {
     return <RemoteGatewayPrompt supportsSidecar={status.supportsSidecar} />;
   }
 
-  if (desktopRuntime && remoteOwnership && remoteUrl) {
+  if (remoteNavigationPending) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--surface-backdrop)]">
         <Loader2 className="h-8 w-8 animate-spin text-[rgb(var(--accent-primary))]" />

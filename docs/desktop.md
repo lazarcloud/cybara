@@ -91,7 +91,8 @@ The URL is resolved in this order:
 Only `http` and `https` URLs without embedded credentials are accepted. Remote
 gateways render their own web UI in the desktop window; the local Tauri IPC
 surface remains restricted to loopback origins. Choose **Use local gateway**
-from the tray menu or settings to return to the bundled sidecar.
+from the tray menu to return to the bundled sidecar; the same control appears
+under Settings → Gateway whenever the bundled UI is loaded.
 
 ## Desktop Auto Updates
 

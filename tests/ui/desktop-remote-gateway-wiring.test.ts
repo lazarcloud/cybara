@@ -15,6 +15,7 @@ describe("desktop remote gateway wiring", () => {
 
     expect(gate).toContain("readGatewayStartupStatus");
     expect(gate).toContain('status?.ownership === "remoteHosted"');
+    expect(gate).toContain("isRemoteGatewayNavigationPending(window.location.origin, remoteUrl)");
     expect(gate).toContain("window.location.replace(remoteUrl)");
     expect(gate).toContain("<RemoteGatewayPrompt");
     expect(gate).toContain("status?.needsRemoteConfig");
